@@ -1,0 +1,17 @@
+COMPILE_OPTS =          $(INCLUDES) -I. $(EXTRA_LDFLAGS) -DBSD=1 -O2 -DSOCKLEN_T=socklen_t -DHAVE_SOCKADDR_LEN=1 -D_LARGEFILE_SOURCE=1 -D_FILE_OFFSET_BITS=64 -fPIC -arch armv7 --sysroot=/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS3.0.sdk
+C =                     c
+C_COMPILER =            /Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/gcc
+C_FLAGS =               $(COMPILE_OPTS)
+CPP =                   cpp
+CPLUSPLUS_COMPILER =    /Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/g++
+CPLUSPLUS_FLAGS =       $(COMPILE_OPTS) -Wall
+OBJ =                   o
+LINK =                  /Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/g++ -o 
+LINK_OPTS =             -L. -arch armv7 --sysroot=/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS3.0.sdk
+CONSOLE_LINK_OPTS =     $(LINK_OPTS)
+LIBRARY_LINK =          libtool -s -o 
+LIBRARY_LINK_OPTS =
+LIB_SUFFIX =            a
+LIBS_FOR_CONSOLE_APPLICATION =
+LIBS_FOR_GUI_APPLICATION =
+EXE =
