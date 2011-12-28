@@ -1600,6 +1600,7 @@
 		DBE19F2914ABB5CC000A8D99 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CURRENT_PROJECT_VERSION = 2011.12.23;
 				DSTROOT = /tmp/Live555.dst;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "Live555/Live555-Prefix.pch";
@@ -1612,6 +1613,7 @@
 		DBE19F2A14ABB5CC000A8D99 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CURRENT_PROJECT_VERSION = 2011.12.23;
 				DSTROOT = /tmp/Live555.dst;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "Live555/Live555-Prefix.pch";
@@ -1640,6 +1642,7 @@
 				DBE19F2A14ABB5CC000A8D99 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
