@@ -1344,9 +1344,9 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = DBE19F2814ABB5CC000A8D99 /* Build configuration list for PBXNativeTarget "Live555" */;
 			buildPhases = (
+				DBE19F1914ABB5CC000A8D99 /* Headers */,
 				DBE19F1714ABB5CC000A8D99 /* Sources */,
 				DBE19F1814ABB5CC000A8D99 /* Frameworks */,
-				DBE19F1914ABB5CC000A8D99 /* Headers */,
 			);
 			buildRules = (
 			);
