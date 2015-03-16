@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A 'ServerMediaSubsession' object that creates new, unicast, "RTPSink"s
 // on demand, from a MPEG-1 or 2 demuxer.
 // Implementation
@@ -64,7 +64,7 @@ FramedSource* MPEG1or2DemuxedServerMediaSubsession
 						  fIFramesOnly, fVSHPeriod);
     } else if (fStreamIdTag == 0xBD /*AC-3 audio*/) {
       estBitrate = 192; // kbps, estimate
-      return AC3AudioStreamFramer::createNew(envir(), es);
+      return AC3AudioStreamFramer::createNew(envir(), es, 0x80);
     } else { // unknown stream type
       break;
     }

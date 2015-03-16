@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // EBML numbers (ids and sizes)
 // Implementation
 
@@ -71,6 +71,7 @@ char const* EBMLId::stringName() const {
     case MATROSKA_ID_DURATION: { return "Segment Duration"; }
     case MATROSKA_ID_TIMECODE_SCALE: { return "Timecode Scale"; }
     case MATROSKA_ID_DATE_UTC: { return "Date (UTC)"; }
+    case MATROSKA_ID_TITLE: { return "Title"; }
     case MATROSKA_ID_MUXING_APP: { return "Muxing App"; }
     case MATROSKA_ID_WRITING_APP: { return "Writing App"; }
     case MATROSKA_ID_CLUSTER: { return "Cluster"; }
@@ -107,16 +108,25 @@ char const* EBMLId::stringName() const {
     case MATROSKA_ID_PIXEL_HEIGHT: { return "Pixel Height"; }
     case MATROSKA_ID_DISPLAY_WIDTH: { return "Display Width"; }
     case MATROSKA_ID_DISPLAY_HEIGHT: { return "Display Height"; }
+    case MATROSKA_ID_DISPLAY_UNIT: { return "Display Unit"; }
     case MATROSKA_ID_AUDIO: { return "Audio Settings"; }
     case MATROSKA_ID_SAMPLING_FREQUENCY: { return "Sampling Frequency"; }
     case MATROSKA_ID_OUTPUT_SAMPLING_FREQUENCY: { return "Output Sampling Frequency"; }
     case MATROSKA_ID_CHANNELS: { return "Channels"; }
+    case MATROSKA_ID_BIT_DEPTH: { return "Bit Depth"; }
     case MATROSKA_ID_CONTENT_ENCODINGS: { return "Content Encodings"; }
     case MATROSKA_ID_CONTENT_ENCODING: { return "Content Encoding"; }
     case MATROSKA_ID_CONTENT_COMPRESSION: { return "Content Compression"; }
     case MATROSKA_ID_CONTENT_COMP_ALGO: { return "Content Compression Algorithm"; }
     case MATROSKA_ID_CONTENT_COMP_SETTINGS: { return "Content Compression Settings"; }
     case MATROSKA_ID_CONTENT_ENCRYPTION: { return "Content Encryption"; }
+    case MATROSKA_ID_ATTACHMENTS: { return "Attachments"; }
+    case MATROSKA_ID_ATTACHED_FILE: { return "Attached File"; }
+    case MATROSKA_ID_FILE_DESCRIPTION: { return "File Description"; }
+    case MATROSKA_ID_FILE_NAME: { return "File Name"; }
+    case MATROSKA_ID_FILE_MIME_TYPE: { return "File MIME Type"; }
+    case MATROSKA_ID_FILE_DATA: { return "File Data"; }
+    case MATROSKA_ID_FILE_UID: { return "File UID"; }
     case MATROSKA_ID_CUES: { return "Cues"; }
     case MATROSKA_ID_CUE_POINT: { return "Cue Point"; }
     case MATROSKA_ID_CUE_TIME: { return "Cue Time"; }
@@ -125,6 +135,9 @@ char const* EBMLId::stringName() const {
     case MATROSKA_ID_CUE_CLUSTER_POSITION: { return "Cue Cluster Position"; }
     case MATROSKA_ID_CUE_BLOCK_NUMBER: { return "Cue Block Number"; }
     case MATROSKA_ID_TAGS: { return "Tags"; }
+    case MATROSKA_ID_SEEK_PRE_ROLL: { return "SeekPreRoll"; }
+    case MATROSKA_ID_CODEC_DELAY: { return "CodecDelay"; }
+    case MATROSKA_ID_DISCARD_PADDING: { return "DiscardPadding"; }
     default: { return "*****unknown*****"; }
   }
 }

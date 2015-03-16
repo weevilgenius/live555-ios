@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // Media Sinks
 // Implementation
 
@@ -84,7 +84,6 @@ void MediaSink::stopPlaying() {
 
   // Cancel any pending tasks:
   envir().taskScheduler().unscheduleDelayedTask(nextTask());
-  nextTask() = NULL;
 
   fSource = NULL; // indicates that we can be played again
   fAfterFunc = NULL;
@@ -92,9 +91,16 @@ void MediaSink::stopPlaying() {
 
 void MediaSink::onSourceClosure(void* clientData) {
   MediaSink* sink = (MediaSink*)clientData;
-  sink->fSource = NULL; // indicates that we can be played again
-  if (sink->fAfterFunc != NULL) {
-    (*(sink->fAfterFunc))(sink->fAfterClientData);
+  sink->onSourceClosure();
+}
+
+void MediaSink::onSourceClosure() {
+  // Cancel any pending tasks:
+  envir().taskScheduler().unscheduleDelayedTask(nextTask());
+
+  fSource = NULL; // indicates that we can be played again
+  if (fAfterFunc != NULL) {
+    (*fAfterFunc)(fAfterClientData);
   }
 }
 
@@ -106,11 +112,12 @@ Boolean MediaSink::isRTPSink() const {
 
 unsigned OutPacketBuffer::maxSize = 60000; // by default
 
-OutPacketBuffer::OutPacketBuffer(unsigned preferredPacketSize,
-				 unsigned maxPacketSize)
+OutPacketBuffer
+::OutPacketBuffer(unsigned preferredPacketSize, unsigned maxPacketSize, unsigned maxBufferSize)
   : fPreferred(preferredPacketSize), fMax(maxPacketSize),
     fOverflowDataSize(0) {
-  unsigned maxNumPackets = (maxSize + (maxPacketSize-1))/maxPacketSize;
+  if (maxBufferSize == 0) maxBufferSize = maxSize;
+  unsigned maxNumPackets = (maxBufferSize + (maxPacketSize-1))/maxPacketSize;
   fLimit = maxNumPackets*maxPacketSize;
   fBuf = new unsigned char[fLimit];
   resetPacketStart();

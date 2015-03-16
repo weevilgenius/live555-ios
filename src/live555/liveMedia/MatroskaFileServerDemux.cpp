@@ -14,66 +14,55 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A server demultiplexor for a Matroska file
 // Implementation
 
 #include "MatroskaFileServerDemux.hh"
 #include "MP3AudioMatroskaFileServerMediaSubsession.hh"
-#include "AACAudioMatroskaFileServerMediaSubsession.hh"
-#include "AC3AudioMatroskaFileServerMediaSubsession.hh"
-#include "VorbisAudioMatroskaFileServerMediaSubsession.hh"
-#include "H264VideoMatroskaFileServerMediaSubsession.hh"
-#include "VP8VideoMatroskaFileServerMediaSubsession.hh"
-#include "T140TextMatroskaFileServerMediaSubsession.hh"
+#include "MatroskaFileServerMediaSubsession.hh"
 
 void MatroskaFileServerDemux
-::createNew(UsageEnvironment& env, char const* fileName, onCreationFunc* onCreation, void* onCreationClientData) {
-  (void)new MatroskaFileServerDemux(env, fileName, onCreation, onCreationClientData);
+::createNew(UsageEnvironment& env, char const* fileName,
+	    onCreationFunc* onCreation, void* onCreationClientData,
+	    char const* preferredLanguage) {
+  (void)new MatroskaFileServerDemux(env, fileName,
+				    onCreation, onCreationClientData,
+				    preferredLanguage);
 }
 
 ServerMediaSubsession* MatroskaFileServerDemux::newServerMediaSubsession() {
+  unsigned dummyResultTrackNumber;
+  return newServerMediaSubsession(dummyResultTrackNumber);
+}
+
+ServerMediaSubsession* MatroskaFileServerDemux
+::newServerMediaSubsession(unsigned& resultTrackNumber) {
   ServerMediaSubsession* result;
+  resultTrackNumber = 0;
 
   for (result = NULL; result == NULL && fNextTrackTypeToCheck != MATROSKA_TRACK_TYPE_OTHER; fNextTrackTypeToCheck <<= 1) {
-    unsigned trackNumber = 0;
-    if (fNextTrackTypeToCheck == MATROSKA_TRACK_TYPE_VIDEO) trackNumber = fOurMatroskaFile->chosenVideoTrackNumber();
-    else if (fNextTrackTypeToCheck == MATROSKA_TRACK_TYPE_AUDIO) trackNumber = fOurMatroskaFile->chosenAudioTrackNumber();
-    else if (fNextTrackTypeToCheck == MATROSKA_TRACK_TYPE_SUBTITLE) trackNumber = fOurMatroskaFile->chosenSubtitleTrackNumber();
+    if (fNextTrackTypeToCheck == MATROSKA_TRACK_TYPE_VIDEO) resultTrackNumber = fOurMatroskaFile->chosenVideoTrackNumber();
+    else if (fNextTrackTypeToCheck == MATROSKA_TRACK_TYPE_AUDIO) resultTrackNumber = fOurMatroskaFile->chosenAudioTrackNumber();
+    else if (fNextTrackTypeToCheck == MATROSKA_TRACK_TYPE_SUBTITLE) resultTrackNumber = fOurMatroskaFile->chosenSubtitleTrackNumber();
 
-    result = newServerMediaSubsession(trackNumber);
+    result = newServerMediaSubsessionByTrackNumber(resultTrackNumber);
   }
 
   return result;
 }
 
-ServerMediaSubsession* MatroskaFileServerDemux::newServerMediaSubsession(unsigned trackNumber) {
+ServerMediaSubsession* MatroskaFileServerDemux
+::newServerMediaSubsessionByTrackNumber(unsigned trackNumber) {
   MatroskaTrack* track = fOurMatroskaFile->lookup(trackNumber);
   if (track == NULL) return NULL;
 
   // Use the track's "codecID" string to figure out which "ServerMediaSubsession" subclass to use:
   ServerMediaSubsession* result = NULL;
-  if (strncmp(track->codecID, "A_MPEG", 6) == 0) {
-    track->mimeType = "audio/MPEG";
-    result = MP3AudioMatroskaFileServerMediaSubsession::createNew(*this, track->trackNumber, False, NULL);
-  } else if (strncmp(track->codecID, "A_AAC", 5) == 0) {
-    track->mimeType = "audio/AAC";
-    result = AACAudioMatroskaFileServerMediaSubsession::createNew(*this, track->trackNumber);
-  } else if (strncmp(track->codecID, "A_AC3", 5) == 0) {
-    track->mimeType = "audio/AC3";
-    result = AC3AudioMatroskaFileServerMediaSubsession::createNew(*this, track->trackNumber);
-  } else if (strncmp(track->codecID, "A_VORBIS", 8) == 0) {
-    track->mimeType = "audio/VORBIS";
-    result = VorbisAudioMatroskaFileServerMediaSubsession::createNew(*this, track->trackNumber);
-  } else if (strcmp(track->codecID, "V_MPEG4/ISO/AVC") == 0) {
-    track->mimeType = "video/H264";
-    result = H264VideoMatroskaFileServerMediaSubsession::createNew(*this, track->trackNumber);
-  } else if (strncmp(track->codecID, "V_VP8", 5) == 0) {
-    track->mimeType = "video/VP8";
-    result = VP8VideoMatroskaFileServerMediaSubsession::createNew(*this, track->trackNumber);
-  } else if (strncmp(track->codecID, "S_TEXT", 6) == 0) {
-    track->mimeType = "text/T140";
-    result = T140TextMatroskaFileServerMediaSubsession::createNew(*this, track->trackNumber);
+  if (strcmp(track->mimeType, "audio/MPEG") == 0) {
+    result = MP3AudioMatroskaFileServerMediaSubsession::createNew(*this, track);
+  } else {
+    result = MatroskaFileServerMediaSubsession::createNew(*this, track);
   }
 
   if (result != NULL) {
@@ -103,15 +92,17 @@ FramedSource* MatroskaFileServerDemux::newDemuxedTrack(unsigned clientSessionId,
   fLastClientSessionId = clientSessionId;
   fLastCreatedDemux = demuxToUse;
 
-  return demuxToUse->newDemuxedTrack(trackNumber);
+  return demuxToUse->newDemuxedTrackByTrackNumber(trackNumber);
 }
 
 MatroskaFileServerDemux
-::MatroskaFileServerDemux(UsageEnvironment& env, char const* fileName, onCreationFunc* onCreation, void* onCreationClientData)
+::MatroskaFileServerDemux(UsageEnvironment& env, char const* fileName,
+			  onCreationFunc* onCreation, void* onCreationClientData,
+			  char const* preferredLanguage)
   : Medium(env),
     fFileName(fileName), fOnCreation(onCreation), fOnCreationClientData(onCreationClientData),
     fNextTrackTypeToCheck(0x1), fLastClientSessionId(0), fLastCreatedDemux(NULL) {
-  MatroskaFile::createNew(env, fileName, onMatroskaFileCreation, this);
+  MatroskaFile::createNew(env, fileName, onMatroskaFileCreation, this, preferredLanguage);
 }
 
 MatroskaFileServerDemux::~MatroskaFileServerDemux() {

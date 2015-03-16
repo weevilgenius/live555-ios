@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // RTP sink for MPEG video (RFC 2250)
 // Implementation
 
@@ -170,6 +170,6 @@ void MPEG1or2VideoRTPSink
 }
 
 unsigned MPEG1or2VideoRTPSink::specialHeaderSize() const {
-  // There's a 4 byte special audio header:
+  // There's a 4 byte special video header:
   return 4;
 }

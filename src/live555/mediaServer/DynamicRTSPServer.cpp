@@ -13,7 +13,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
-// Copyright (c) 1996-2012, Live Networks, Inc.  All rights reserved
+// Copyright (c) 1996-2015, Live Networks, Inc.  All rights reserved
 // A subclass of "RTSPServer" that creates "ServerMediaSession"s on demand,
 // based on whether or not the specified stream name exists as a file
 // Implementation
@@ -44,8 +44,8 @@ DynamicRTSPServer::~DynamicRTSPServer() {
 static ServerMediaSession* createNewSMS(UsageEnvironment& env,
 					char const* fileName, FILE* fid); // forward
 
-ServerMediaSession*
-DynamicRTSPServer::lookupServerMediaSession(char const* streamName) {
+ServerMediaSession* DynamicRTSPServer
+::lookupServerMediaSession(char const* streamName, Boolean isFirstLookupInSession) {
   // First, check whether the specified "streamName" exists as a local file:
   FILE* fid = fopen(streamName, "rb");
   Boolean fileExists = fid != NULL;
@@ -59,27 +59,51 @@ DynamicRTSPServer::lookupServerMediaSession(char const* streamName) {
     if (smsExists) {
       // "sms" was created for a file that no longer exists. Remove it:
       removeServerMediaSession(sms);
+      sms = NULL;
     }
+
     return NULL;
   } else {
-    if (!smsExists) {
-      // Create a new "ServerMediaSession" object for streaming from the named file.
-      sms = createNewSMS(envir(), streamName, fid);
+    if (smsExists && isFirstLookupInSession) { 
+      // Remove the existing "ServerMediaSession" and create a new one, in case the underlying
+      // file has changed in some way:
+      removeServerMediaSession(sms); 
+      sms = NULL;
+    } 
+
+    if (sms == NULL) {
+      sms = createNewSMS(envir(), streamName, fid); 
       addServerMediaSession(sms);
     }
+
     fclose(fid);
     return sms;
   }
 }
 
 // Special code for handling Matroska files:
-static char newMatroskaDemuxWatchVariable;
-static MatroskaFileServerDemux* demux;
-static void onMatroskaDemuxCreation(MatroskaFileServerDemux* newDemux, void* /*clientData*/) {
-  demux = newDemux;
-  newMatroskaDemuxWatchVariable = 1;
+struct MatroskaDemuxCreationState {
+  MatroskaFileServerDemux* demux;
+  char watchVariable;
+};
+static void onMatroskaDemuxCreation(MatroskaFileServerDemux* newDemux, void* clientData) {
+  MatroskaDemuxCreationState* creationState = (MatroskaDemuxCreationState*)clientData;
+  creationState->demux = newDemux;
+  creationState->watchVariable = 1;
 }
 // END Special code for handling Matroska files:
+
+// Special code for handling Ogg files:
+struct OggDemuxCreationState {
+  OggFileServerDemux* demux;
+  char watchVariable;
+};
+static void onOggDemuxCreation(OggFileServerDemux* newDemux, void* clientData) {
+  OggDemuxCreationState* creationState = (OggDemuxCreationState*)clientData;
+  creationState->demux = newDemux;
+  creationState->watchVariable = 1;
+}
+// END Special code for handling Ogg files:
 
 #define NEW_SMS(description) do {\
 char const* descStr = description\
@@ -116,6 +140,11 @@ static ServerMediaSession* createNewSMS(UsageEnvironment& env,
     NEW_SMS("H.264 Video");
     OutPacketBuffer::maxSize = 100000; // allow for some possibly large H.264 frames
     sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(env, fileName, reuseSource));
+  } else if (strcmp(extension, ".265") == 0) {
+    // Assumed to be a H.265 Video Elementary Stream file:
+    NEW_SMS("H.265 Video");
+    OutPacketBuffer::maxSize = 100000; // allow for some possibly large H.265 frames
+    sms->addSubsession(H265VideoFileServerMediaSubsession::createNew(env, fileName, reuseSource));
   } else if (strcmp(extension, ".mp3") == 0) {
     // Assumed to be a MPEG-1 or 2 Audio file:
     NEW_SMS("MPEG-1 or 2 Audio");
@@ -144,6 +173,13 @@ static ServerMediaSession* createNewSMS(UsageEnvironment& env,
       = MPEG1or2FileServerDemux::createNew(env, fileName, reuseSource);
     sms->addSubsession(demux->newVideoServerMediaSubsession());
     sms->addSubsession(demux->newAudioServerMediaSubsession());
+  } else if (strcmp(extension, ".vob") == 0) {
+    // Assumed to be a VOB (MPEG-2 Program Stream, with AC-3 audio) file:
+    NEW_SMS("VOB (MPEG-2 video with AC-3 audio)");
+    MPEG1or2FileServerDemux* demux
+      = MPEG1or2FileServerDemux::createNew(env, fileName, reuseSource);
+    sms->addSubsession(demux->newVideoServerMediaSubsession());
+    sms->addSubsession(demux->newAC3AudioServerMediaSubsession());
   } else if (strcmp(extension, ".ts") == 0) {
     // Assumed to be a MPEG Transport Stream file:
     // Use an index file name that's the same as the TS file name, except with ".tsx":
@@ -169,15 +205,33 @@ static ServerMediaSession* createNewSMS(UsageEnvironment& env,
     sms->addSubsession(DVVideoFileServerMediaSubsession::createNew(env, fileName, reuseSource));
   } else if (strcmp(extension, ".mkv") == 0 || strcmp(extension, ".webm") == 0) {
     // Assumed to be a Matroska file (note that WebM ('.webm') files are also Matroska files)
+    OutPacketBuffer::maxSize = 100000; // allow for some possibly large VP8 or VP9 frames
     NEW_SMS("Matroska video+audio+(optional)subtitles");
 
-    // Create a Matroska file server demultiplexor for the specified file.  (We enter the event loop to wait for this to complete.)
-    newMatroskaDemuxWatchVariable = 0;
-    MatroskaFileServerDemux::createNew(env, fileName, onMatroskaDemuxCreation, NULL);
-    env.taskScheduler().doEventLoop(&newMatroskaDemuxWatchVariable);
+    // Create a Matroska file server demultiplexor for the specified file.
+    // (We enter the event loop to wait for this to complete.)
+    MatroskaDemuxCreationState creationState;
+    creationState.watchVariable = 0;
+    MatroskaFileServerDemux::createNew(env, fileName, onMatroskaDemuxCreation, &creationState);
+    env.taskScheduler().doEventLoop(&creationState.watchVariable);
 
     ServerMediaSubsession* smss;
-    while ((smss = demux->newServerMediaSubsession()) != NULL) {
+    while ((smss = creationState.demux->newServerMediaSubsession()) != NULL) {
+      sms->addSubsession(smss);
+    }
+  } else if (strcmp(extension, ".ogg") == 0 || strcmp(extension, ".ogv") == 0 || strcmp(extension, ".opus") == 0) {
+    // Assumed to be an Ogg file
+    NEW_SMS("Ogg video and/or audio");
+
+    // Create a Ogg file server demultiplexor for the specified file.
+    // (We enter the event loop to wait for this to complete.)
+    OggDemuxCreationState creationState;
+    creationState.watchVariable = 0;
+    OggFileServerDemux::createNew(env, fileName, onOggDemuxCreation, &creationState);
+    env.taskScheduler().doEventLoop(&creationState.watchVariable);
+
+    ServerMediaSubsession* smss;
+    while ((smss = creationState.demux->newServerMediaSubsession()) != NULL) {
       sms->addSubsession(smss);
     }
   }

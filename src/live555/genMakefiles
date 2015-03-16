@@ -40,6 +40,11 @@ cd ../mediaServer
 cat Makefile.head ../config.$1 Makefile.tail > Makefile
 chmod a-w Makefile
 
+cd ../proxyServer
+/bin/rm -f Makefile
+cat Makefile.head ../config.$1 Makefile.tail > Makefile
+chmod a-w Makefile
+
 cd ..
 /bin/rm -f Makefile
 cat Makefile.head config.$1 Makefile.tail > Makefile

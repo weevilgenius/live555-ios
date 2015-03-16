@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // MP3 internal implementation details
 // Implementation
 
@@ -173,7 +173,7 @@ void MP3FrameParams::setParamsFromHeader() {
     samplingFreqIndex = ((hdr>>10)&0x3) + (isMPEG2*3);
   }
 
-  hasCRC = ((hdr>>16)&0x1)^0x1;
+  hasCRC = (hdr & 0x10000) == 0;
 
   padding   = ((hdr>>9)&0x1);
   extension = ((hdr>>8)&0x1);
@@ -224,7 +224,7 @@ unsigned ComputeFrameSize(unsigned bitrate, unsigned samplingFreq,
   unsigned framesize;
 
   framesize = bitrate*bitrateMultiplier;
-  framesize /= samplingFreq<<isMPEG2;
+  framesize /= samplingFreq<<(isMPEG2 ? 1 : 0);
   framesize = framesize + usePadding - 4;
 
   return framesize;
@@ -516,7 +516,7 @@ void MP3FrameParams::getSideInfo(MP3SideInfo& si) {
   if (hasCRC) getBits(16);
 
   int single = -1;
-  int ms_stereo, i_stereo;
+  int ms_stereo;
   int sfreq = samplingFreqIndex;
 
   if (stereo == 1) {
@@ -524,7 +524,6 @@ void MP3FrameParams::getSideInfo(MP3SideInfo& si) {
   }
 
   ms_stereo = (mode == MPG_MD_JOINT_STEREO) && (mode_ext & 0x2);
-  i_stereo = (mode == MPG_MD_JOINT_STEREO) && (mode_ext & 0x1);
 
   if (isMPEG2) {
     getSideInfo2(*this, si, stereo, ms_stereo, sfreq, single);

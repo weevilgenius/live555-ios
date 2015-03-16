@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A 'ServerMediaSubsession' object that creates new, unicast, "RTPSink"s
 // on demand.
 // C++ header
@@ -38,7 +38,8 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 class OnDemandServerMediaSubsession: public ServerMediaSubsession {
 protected: // we're a virtual base class
   OnDemandServerMediaSubsession(UsageEnvironment& env, Boolean reuseFirstSource,
-				portNumBits initialPortNum = 6970);
+				portNumBits initialPortNum = 6970,
+				Boolean multiplexRTCPWithRTP = False);
   virtual ~OnDemandServerMediaSubsession();
 
 protected: // redefined virtual functions
@@ -65,7 +66,11 @@ protected: // redefined virtual functions
                            void* serverRequestAlternativeByteHandlerClientData);
   virtual void pauseStream(unsigned clientSessionId, void* streamToken);
   virtual void seekStream(unsigned clientSessionId, void* streamToken, double& seekNPT, double streamDuration, u_int64_t& numBytes);
+  virtual void seekStream(unsigned clientSessionId, void* streamToken, char*& absStart, char*& absEnd);
+  virtual void nullSeekStream(unsigned clientSessionId, void* streamToken,
+			      double streamEndTime, u_int64_t& numBytes);
   virtual void setStreamScale(unsigned clientSessionId, void* streamToken, float scale);
+  virtual float getCurrentNPT(void* streamToken);
   virtual FramedSource* getStreamSource(void* streamToken);
   virtual void deleteStream(unsigned clientSessionId, void*& streamToken);
 
@@ -73,9 +78,17 @@ protected: // new virtual functions, possibly redefined by subclasses
   virtual char const* getAuxSDPLine(RTPSink* rtpSink,
 				    FramedSource* inputSource);
   virtual void seekStreamSource(FramedSource* inputSource, double& seekNPT, double streamDuration, u_int64_t& numBytes);
+    // This routine is used to seek by relative (i.e., NPT) time.
     // "streamDuration", if >0.0, specifies how much data to stream, past "seekNPT".  (If <=0.0, all remaining data is streamed.)
+    // "numBytes" returns the size (in bytes) of the data to be streamed, or 0 if unknown or unlimited.
+  virtual void seekStreamSource(FramedSource* inputSource, char*& absStart, char*& absEnd);
+    // This routine is used to seek by 'absolute' time.
+    // "absStart" should be a string of the form "YYYYMMDDTHHMMSSZ" or "YYYYMMDDTHHMMSS.<frac>Z".
+    // "absEnd" should be either NULL (for no end time), or a string of the same form as "absStart".
+    // These strings may be modified in-place, or can be reassigned to a newly-allocated value (after delete[]ing the original).
   virtual void setStreamSourceScale(FramedSource* inputSource, float scale);
-  virtual void closeStreamSource(FramedSource *inputSource);
+  virtual void setStreamSourceDuration(FramedSource* inputSource, double streamDuration, u_int64_t& numBytes);
+  virtual void closeStreamSource(FramedSource* inputSource);
 
 protected: // new virtual functions, defined by all subclasses
   virtual FramedSource* createNewStreamSource(unsigned clientSessionId,
@@ -85,6 +98,26 @@ protected: // new virtual functions, defined by all subclasses
 				    unsigned char rtpPayloadTypeIfDynamic,
 				    FramedSource* inputSource) = 0;
 
+public:
+  void multiplexRTCPWithRTP() { fMultiplexRTCPWithRTP = True; }
+    // An alternative to passing the "multiplexRTCPWithRTP" parameter as True in the constructor
+
+  void setRTCPAppPacketHandler(RTCPAppHandlerFunc* handler, void* clientData);
+    // Sets a handler to be called if a RTCP "APP" packet arrives from any future client.
+    // (Any current clients are not affected; any "APP" packets from them will continue to be
+    // handled by whatever handler existed when the client sent its first RTSP "PLAY" command.)
+    // (Call with (NULL, NULL) to remove an existing handler - for future clients only)
+
+  void sendRTCPAppPacket(u_int8_t subtype, char const* name,
+			 u_int8_t* appDependentData, unsigned appDependentDataSize);
+    // Sends a custom RTCP "APP" packet to the most recent client (if "reuseFirstSource" was False),
+    // or to all current clients (if "reuseFirstSource" was True).
+    // The parameters correspond to their
+    // respective fields as described in the RTP/RTCP definition (RFC 3550).
+    // Note that only the low-order 5 bits of "subtype" are used, and only the first 4 bytes
+    // of "name" are used.  (If "name" has fewer than 4 bytes, or is NULL,
+    // then the remaining bytes are '\0'.)
+
 private:
   void setSDPLinesFromRTPSink(RTPSink* rtpSink, FramedSource* inputSource,
 			      unsigned estBitrate);
@@ -92,13 +125,16 @@ private:
 
 protected:
   char* fSDPLines;
+  HashTable* fDestinationsHashTable; // indexed by client session id
 
 private:
   Boolean fReuseFirstSource;
   portNumBits fInitialPortNum;
-  HashTable* fDestinationsHashTable; // indexed by client session id
+  Boolean fMultiplexRTCPWithRTP;
   void* fLastStreamToken;
   char fCNAME[100]; // for RTCP
+  RTCPAppHandlerFunc* fAppHandlerTask;
+  void* fAppHandlerClientData;
   friend class StreamState;
 };
 
@@ -106,6 +142,7 @@ private:
 // A class that represents the state of an ongoing stream.  This is used only internally, in the implementation of
 // "OnDemandServerMediaSubsession", but we expose the definition here, in case subclasses of "OnDemandServerMediaSubsession"
 // want to access it.
+
 class Destinations {
 public:
   Destinations(struct in_addr const& destAddr,
@@ -141,6 +178,8 @@ public:
 		    ServerRequestAlternativeByteHandler* serverRequestAlternativeByteHandler,
                     void* serverRequestAlternativeByteHandlerClientData);
   void pause();
+  void sendRTCPAppPacket(u_int8_t subtype, char const* name,
+			 u_int8_t* appDependentData, unsigned appDependentDataSize);
   void endPlaying(Destinations* destinations);
   void reclaim();
 
@@ -154,6 +193,7 @@ public:
   float streamDuration() const { return fStreamDuration; }
 
   FramedSource* mediaSource() const { return fMediaSource; }
+  float& startNPT() { return fStartNPT; }
 
 private:
   OnDemandServerMediaSubsession& fMaster;
@@ -170,6 +210,7 @@ private:
   RTCPInstance* fRTCPInstance;
 
   FramedSource* fMediaSource;
+  float fStartNPT; // initial 'normal play time'; reset after each seek
 
   Groupsock* fRTPgs;
   Groupsock* fRTCPgs;

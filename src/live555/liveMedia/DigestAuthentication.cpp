@@ -14,12 +14,12 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A class used for digest authentication.
 // Implementation
 
 #include "DigestAuthentication.hh"
-#include "our_md5.h"
+#include "ourMD5.hh"
 #include <strDup.hh>
 #include <GroupsockHelper.hh> // for gettimeofday()
 #include <stdio.h>
@@ -46,6 +46,19 @@ Authenticator& Authenticator::operator=(const Authenticator& rightSide) {
   }
 
   return *this;
+}
+
+Boolean Authenticator::operator<(const Authenticator* rightSide) {
+  // Returns True if "rightSide" is 'newer' than us:
+  if (rightSide != NULL && rightSide != this &&
+      (rightSide->realm() != NULL || rightSide->nonce() != NULL ||
+       username() == NULL || password() == NULL ||
+       strcmp(rightSide->username(), username()) != 0 ||
+       strcmp(rightSide->password(), password()) != 0)) {
+    return True;
+  }
+
+  return False;
 }
 
 Authenticator::~Authenticator() {
@@ -125,7 +138,7 @@ char const* Authenticator::computeDigestResponse(char const* cmd,
 }
 
 void Authenticator::reclaimDigestResponse(char const* responseStr) const {
-  free((char*)responseStr); // NOT delete, because it was malloc-allocated
+  delete[](char*)responseStr;
 }
 
 void Authenticator::resetRealmAndNonce() {
@@ -145,6 +158,9 @@ void Authenticator::assignRealmAndNonce(char const* realm, char const* nonce) {
 }
 
 void Authenticator::assignUsernameAndPassword(char const* username, char const* password, Boolean passwordIsMD5) {
+  if (username == NULL) username = "";
+  if (password == NULL) password = "";
+
   fUsername = strDup(username);
   fPassword = strDup(password);
   fPasswordIsMD5 = passwordIsMD5;

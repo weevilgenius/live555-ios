@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // RTP sink for T.140 text (RFC 2793)
 // C++ header
 
@@ -41,7 +41,6 @@ protected:
   virtual ~T140TextRTPSink();
 
 protected: // redefined virtual functions:
-  virtual void stopPlaying();
   virtual Boolean continuePlaying();
   virtual void doSpecialFrameHandling(unsigned fragmentationOffset,
                                       unsigned char* frameStart,
@@ -86,8 +85,11 @@ private:
   static void handleIdleTimeout(void* clientData);
   void handleIdleTimeout();
 
-  Boolean deliverFromBuffer();
+  void deliverFromBuffer();
   void deliverEmptyFrame();
+
+  static void onSourceClosure(void* clientData);
+  void onSourceClosure();
 
 private:
   TaskToken fIdleTimerTask;

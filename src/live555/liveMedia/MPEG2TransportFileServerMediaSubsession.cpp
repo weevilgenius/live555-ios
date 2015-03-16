@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A 'ServerMediaSubsession' object that creates new, unicast, "RTPSink"s
 // on demand, from a MPEG-2 Transport Stream file.
 // Implementation
@@ -251,20 +251,35 @@ unsigned long ClientTrickPlayState::updateStateFromNPT(double npt, double stream
     fFramer->clearPIDStatusTable();
   }
 
-  // NPT might have changed when we looked it up in the index file.  Adjust "streamDuration" accordingly:
-  streamDuration += npt - (double)fNPT;
-
   unsigned long numTSRecordsToStream = 0;
+  float pcrLimit = 0.0;
   if (streamDuration > 0.0) {
-    // Use the index file to figure out how many Transport Packets we get to stream:
-    unsigned long toTSRecordNum, toIxRecordNum;    
-    float toNPT = (float)(fNPT + streamDuration);
-    fIndexFile->lookupTSPacketNumFromNPT(toNPT, toTSRecordNum, toIxRecordNum);
-    if (toTSRecordNum > tsRecordNum) { // sanity check
-      numTSRecordsToStream = toTSRecordNum - tsRecordNum;
+    // fNPT might have changed when we looked it up in the index file.  Adjust "streamDuration" accordingly:
+    streamDuration += npt - (double)fNPT;
+
+    if (streamDuration > 0.0) {
+      // Specify that we want to stream no more data than this.
+
+      if (fNextScale == 1.0f) {
+	// We'll be streaming from the original file.
+	// Use the index file to figure out how many Transport Packets we get to stream:
+	unsigned long toTSRecordNum, toIxRecordNum;    
+	float toNPT = (float)(fNPT + streamDuration);
+	fIndexFile->lookupTSPacketNumFromNPT(toNPT, toTSRecordNum, toIxRecordNum);
+	if (toTSRecordNum > tsRecordNum) { // sanity check
+	  numTSRecordsToStream = toTSRecordNum - tsRecordNum;
+	}
+      } else {
+	// We'll be streaming from the trick play stream.  
+	// It'd be difficult to figure out how many Transport Packets we need to stream, so instead set a PCR
+	// limit in the trick play stream.  (We rely upon the fact that PCRs in the trick play stream start at 0.0)
+	int direction = fNextScale < 0.0 ? -1 : 1;
+	pcrLimit = (float)(streamDuration/(fNextScale*direction));
+      }
     }
   }
   fFramer->setNumTSPacketsToStream(numTSRecordsToStream);
+  fFramer->setPCRLimit(pcrLimit);
 
   return numTSRecordsToStream;
 }

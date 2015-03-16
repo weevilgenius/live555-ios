@@ -20,5 +20,8 @@ type Makefile.head ..\win32config Makefile.tail > testProgs.mak
 cd ../mediaServer
 del /Q mediaServer.mak
 type Makefile.head ..\win32config Makefile.tail > mediaServer.mak
+cd ../proxyServer
+del /Q proxyServer.mak
+type Makefile.head ..\win32config Makefile.tail > proxyServer.mak
 
 ENDLOCAL

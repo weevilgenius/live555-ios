@@ -13,10 +13,16 @@ You should have received a copy of the GNU Lesser General Public License
 along with this library; if not, write to the Free Software Foundation, Inc.,
 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 **********/
-// Copyright (c) 1996-2012, Live Networks, Inc.  All rights reserved
-// A test program that reads a H264 video file (with NAL unit lengths embedded)
+// Copyright (c) 1996-2015, Live Networks, Inc.  All rights reserved
+// A test program that reads a H.264 Elementary Stream video file
 // and streams it using RTP
 // main program
+//
+// NOTE: For this application to work, the H.264 Elementary Stream video file *must* contain SPS and PPS NAL units,
+// ideally at or near the start of the file.  These SPS and PPS NAL units are used to specify 'configuration' information
+// that is set in the output stream's SDP description (by the RTSP server that is built in to this application).
+// Note also that - unlike some other "*Streamer" demo applications - the resulting stream can be received only using a
+// RTSP client (such as "openRTSP")
 
 #include <liveMedia.hh>
 #include <BasicUsageEnvironment.hh>
@@ -97,7 +103,6 @@ int main(int argc, char** argv) {
 
 void afterPlaying(void* /*clientData*/) {
   *env << "...done reading from file\n";
-
   videoSink->stopPlaying();
   Medium::close(videoSource);
   // Note that this also closes the input file that this source read from.

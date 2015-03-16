@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A server that supports both RTSP, and HTTP streaming (using Apple's "HTTP Live Streaming" protocol)
 // C++ header
 
@@ -48,14 +48,13 @@ protected:
   virtual ~RTSPServerSupportingHTTPStreaming();
 
 protected: // redefined virtual functions
-  virtual RTSPClientSession* createNewClientSession(unsigned sessionId, int clientSocket, struct sockaddr_in clientAddr);
+  virtual RTSPClientConnection* createNewClientConnection(int clientSocket, struct sockaddr_in clientAddr);
 
 public: // should be protected, but some old compilers complain otherwise
-  class RTSPClientSessionSupportingHTTPStreaming: public RTSPServer::RTSPClientSession {
+  class RTSPClientConnectionSupportingHTTPStreaming: public RTSPServer::RTSPClientConnection {
   public:
-    RTSPClientSessionSupportingHTTPStreaming(RTSPServer& ourServer, unsigned sessionId,
-                                              int clientSocket, struct sockaddr_in clientAddr);
-    virtual ~RTSPClientSessionSupportingHTTPStreaming();
+    RTSPClientConnectionSupportingHTTPStreaming(RTSPServer& ourServer, int clientSocket, struct sockaddr_in clientAddr);
+    virtual ~RTSPClientConnectionSupportingHTTPStreaming();
 
   protected: // redefined virtual functions
     virtual void handleHTTPCmd_StreamingGET(char const* urlSuffix, char const* fullRequestStr);
@@ -64,6 +63,8 @@ public: // should be protected, but some old compilers complain otherwise
     static void afterStreaming(void* clientData);
 
   private:
+    u_int32_t fClientSessionId;
+    FramedSource* fStreamSource;
     ByteStreamMemoryBufferSource* fPlaylistSource;
     TCPStreamSink* fTCPSink;
   };

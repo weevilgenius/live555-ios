@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // MP3 internal implementation details (Huffman encoding)
 // Implementation
 
@@ -397,7 +397,7 @@ static int read_decoder_table(unsigned char* fi) {
 #ifdef DEBUG
     	fprintf(stderr, "heaperror at table %d\n",n);
 #endif
-    	abort();
+	return -1;
       }
       for (i=0;(unsigned)i<rsf_ht[n].treelen; i++) {
         rsfscanf(&fi, &v0);
@@ -426,7 +426,7 @@ static void initialize_huffman() {
 #ifdef DEBUG
       fprintf(stderr,"decoder table read error\n");
 #endif
-      abort();
+      return;
       }
    huffman_initialized = True;
 }
@@ -538,7 +538,7 @@ static int rsf_huffman_decoder(BitVector& bv,
 			       struct huffcodetab const* h,
 			       int* x, int* y, int* v, int* w); // forward
 
-void MP3HuffmanDecode(MP3SideInfo::gr_info_s_t* gr, int isMPEG2,
+void MP3HuffmanDecode(MP3SideInfo::gr_info_s_t* gr, Boolean isMPEG2,
 		      unsigned char const* fromBasePtr,
 		      unsigned fromBitOffset, unsigned fromLength,
 		      unsigned& scaleFactorsLength,

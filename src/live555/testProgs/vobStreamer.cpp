@@ -13,7 +13,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
-// Copyright (c) 1996-2012, Live Networks, Inc.  All rights reserved
+// Copyright (c) 1996-2015, Live Networks, Inc.  All rights reserved
 // A test program that reads a VOB file
 // splits it into Audio (AC3) and Video (MPEG) Elementary Streams,
 // and streams both using RTP.
@@ -225,8 +225,8 @@ void afterPlaying(void* clientData) {
   // One of the sinks has ended playing.
   // Check whether any of the sources have a pending read.  If so,
   // wait until its sink ends playing also:
-  if (audioSource != NULL && audioSource->isCurrentlyAwaitingData()
-      || videoSource != NULL && videoSource->isCurrentlyAwaitingData()) {
+  if ((audioSource != NULL && audioSource->isCurrentlyAwaitingData()) ||
+      (videoSource != NULL && videoSource->isCurrentlyAwaitingData())) {
     return;
   }
 

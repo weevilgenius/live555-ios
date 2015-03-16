@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A sink that generates a QuickTime file from a composite media session
 // Implementation
 
@@ -42,7 +42,6 @@ public:
   ChunkDescriptor(int64_t offsetInFile, unsigned size,
 		  unsigned frameSize, unsigned frameDuration,
 		  struct timeval presentationTime);
-  virtual ~ChunkDescriptor();
 
   ChunkDescriptor* extendChunk(int64_t newOffsetInFile, unsigned newSize,
 			       unsigned newFrameSize,
@@ -89,7 +88,6 @@ private:
 class SyncFrame {
 public:
   SyncFrame(unsigned frameNum);
-  virtual ~SyncFrame();
 
 public:
   class SyncFrame *nextSyncFrame;
@@ -316,10 +314,12 @@ QuickTimeFileSink::QuickTimeFileSink(UsageEnvironment& env,
 QuickTimeFileSink::~QuickTimeFileSink() {
   completeOutputFile();
 
-  // Then, delete each active "SubsessionIOState":
+  // Then, stop streaming and delete each active "SubsessionIOState":
   MediaSubsessionIterator iter(fInputSession);
   MediaSubsession* subsession;
   while ((subsession = iter.next()) != NULL) {
+    if (subsession->readSource() != NULL) subsession->readSource()->stopGettingFrames();
+
     SubsessionIOState* ioState
       = (SubsessionIOState*)(subsession->miscPtr);
     if (ioState == NULL) continue;
@@ -353,6 +353,12 @@ QuickTimeFileSink::createNew(UsageEnvironment& env,
   }
 
   return newSink;
+}
+
+void QuickTimeFileSink
+::noteRecordedFrame(MediaSubsession& /*inputSubsession*/,
+		    unsigned /*packetDataSize*/, struct timeval const& /*presentationTime*/) {
+  // Default implementation: Do nothing
 }
 
 Boolean QuickTimeFileSink::startPlaying(afterPlayingFunc* afterFunc,
@@ -403,7 +409,7 @@ Boolean QuickTimeFileSink::continuePlaying() {
 
 void QuickTimeFileSink
 ::afterGettingFrame(void* clientData, unsigned packetDataSize,
-		    unsigned /*numTruncatedBytes*/,
+		    unsigned numTruncatedBytes,
 		    struct timeval presentationTime,
 		    unsigned /*durationInMicroseconds*/) {
   SubsessionIOState* ioState = (SubsessionIOState*)clientData;
@@ -411,6 +417,11 @@ void QuickTimeFileSink
     // Ignore this data:
     ioState->fOurSink.continuePlaying();
     return;
+  }
+  if (numTruncatedBytes > 0) {
+    ioState->envir() << "QuickTimeFileSink::afterGettingFrame(): The input frame data was too large for our buffer.  "
+                     << numTruncatedBytes
+                     << " bytes of trailing data was dropped!  Correct this by increasing the \"bufferSize\" parameter in the \"createNew()\" call.\n";
   }
   ioState->afterGettingFrame(packetDataSize, presentationTime);
 }
@@ -544,7 +555,22 @@ SubsessionIOState::SubsessionIOState(QuickTimeFileSink& sink,
 
 SubsessionIOState::~SubsessionIOState() {
   delete fBuffer; delete fPrevBuffer;
-  delete fHeadChunk; delete fHeadSyncFrame;
+
+  // Delete the list of chunk descriptors:
+  ChunkDescriptor* chunk = fHeadChunk;
+  while (chunk != NULL) {
+    ChunkDescriptor* next = chunk->fNextChunk;
+    delete chunk;
+    chunk = next;
+  }
+
+  // Delete the list of sync frames:
+  SyncFrame* syncFrame = fHeadSyncFrame;
+  while (syncFrame != NULL) {
+    SyncFrame* next = syncFrame->nextSyncFrame;
+    delete syncFrame;
+    syncFrame = next;
+  }
 }
 
 Boolean SubsessionIOState::setQTstate() {
@@ -697,6 +723,8 @@ void SubsessionIOState::afterGettingFrame(unsigned packetDataSize,
   fLastPacketRTPSeqNum = rtpSeqNum;
 
   // Now, continue working with the frame that we just got
+  fOurSink.noteRecordedFrame(fOurSubsession, packetDataSize, presentationTime);
+
   if (fBuffer->bytesInUse() == 0) {
     fBuffer->setPresentationTime(presentationTime);
   }
@@ -1016,8 +1044,8 @@ void SubsessionIOState::useFrameForHinting(unsigned frameSize,
     }
   } else if (hackm4a_generic) {
     // Synthesize a special header, so that this frame can be in its own RTP packet.
-    unsigned const sizeLength = fOurSubsession.fmtp_sizelength();
-    unsigned const indexLength = fOurSubsession.fmtp_indexlength();
+    unsigned const sizeLength = fOurSubsession.attrVal_unsigned("sizelength");
+    unsigned const indexLength = fOurSubsession.attrVal_unsigned("indexlength");
     if (sizeLength + indexLength != 16) {
       envir() << "Warning: unexpected 'sizeLength' " << sizeLength
 	      << " and 'indexLength' " << indexLength
@@ -1120,10 +1148,6 @@ SyncFrame::SyncFrame(unsigned frameNum)
   : nextSyncFrame(NULL), sfFrameNum(frameNum) {
 }  
 
-SyncFrame::~SyncFrame() {
-  delete nextSyncFrame;
-}
-
 void Count64::operator+=(unsigned arg) {
   unsigned newLo = lo + arg;
   if (newLo < lo) { // lo has overflowed
@@ -1140,10 +1164,6 @@ ChunkDescriptor
     fNumFrames(size/frameSize),
     fFrameSize(frameSize), fFrameDuration(frameDuration),
     fPresentationTime(presentationTime) {
-}
-
-ChunkDescriptor::~ChunkDescriptor() {
-  delete fNextChunk;
 }
 
 ChunkDescriptor* ChunkDescriptor
@@ -1278,7 +1298,7 @@ void QuickTimeFileSink::setWord64(int64_t filePosn, u_int64_t size) {
   } while (0);
 
   // One of the SeekFile64()s failed, probable because we're not a seekable file
-  envir() << "QuickTimeFileSink::setWord(): SeekFile64 failed (err "
+  envir() << "QuickTimeFileSink::setWord64(): SeekFile64 failed (err "
 	  << envir().getErrno() << ")\n";
 }
 
@@ -1870,8 +1890,8 @@ addAtom(avcC);
 
   size_t comma_pos = strcspn(psets, ",");
   psets[comma_pos] = '\0';
-  char* sps_b64 = psets;
-  char* pps_b64 = &psets[comma_pos+1];
+  char const* sps_b64 = psets;
+  char const* pps_b64 = &psets[comma_pos+1];
   unsigned sps_count;
   unsigned char* sps_data = base64Decode(sps_b64, sps_count, false);
   unsigned pps_count;

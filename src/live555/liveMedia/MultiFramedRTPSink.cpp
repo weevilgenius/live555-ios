@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // RTP sink for a common kind of payload format: Those which pack multiple,
 // complete codec frames (as many as possible) into each RTP packet.
 // Implementation
@@ -44,7 +44,7 @@ MultiFramedRTPSink::MultiFramedRTPSink(UsageEnvironment& env,
 	    rtpPayloadFormatName, numChannels),
     fOutBuf(NULL), fCurFragmentationOffset(0), fPreviousFrameEndedFragmentation(False),
     fOnSendErrorFunc(NULL), fOnSendErrorData(NULL) {
-  setPacketSizes(1000, 1448);
+  setPacketSizes(1000, 1456);
       // Default max packet size (1500, minus allowance for IP, UDP, UMTP headers)
       // (Also, make it a multiple of 4 bytes, just in case that matters.)
 }
@@ -102,7 +102,7 @@ void MultiFramedRTPSink::setMarkerBit() {
 }
 
 void MultiFramedRTPSink::setTimestamp(struct timeval framePresentationTime) {
-  // First, convert the presentatoin time to a 32-bit RTP timestamp:
+  // First, convert the presentation time to a 32-bit RTP timestamp:
   fCurrentTimestamp = convertToRTPTimestamp(framePresentationTime);
 
   // Then, insert it into the RTP packet:
@@ -235,6 +235,11 @@ void MultiFramedRTPSink
     // Record the fact that we're starting to play now:
     gettimeofday(&fNextSendTime, NULL);
   }
+
+  fMostRecentPresentationTime = presentationTime;
+  if (fInitialPresentationTime.tv_sec == 0 && fInitialPresentationTime.tv_usec == 0) {
+    fInitialPresentationTime = presentationTime;
+  }    
 
   if (numTruncatedBytes > 0) {
     unsigned const bufferSize = fOutBuf->totalBytesAvailable();
@@ -385,7 +390,7 @@ void MultiFramedRTPSink::sendPacketIfNecessary() {
 
   if (fNoFramesLeft) {
     // We're done:
-    onSourceClosure(this);
+    onSourceClosure();
   } else {
     // We have more frames left to send.  Figure out when the next frame
     // is due to start playing, then make sure that we wait this long before

@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // MPEG-4 audio, using LATM multiplexing
 // Implementation
 
@@ -172,8 +172,8 @@ parseStreamMuxConfigStr(char const* configStr,
                         unsigned char*& audioSpecificConfig,
                         unsigned& audioSpecificConfigSize) {
   // Set default versions of the result parameters:
-  audioMuxVersion = 0;
-  allStreamsSameTimeFraming = 1;
+  audioMuxVersion = False;
+  allStreamsSameTimeFraming = True;
   numSubFrames = numProgram = numLayer = 0;
   audioSpecificConfig = NULL;
   audioSpecificConfigSize = 0;
@@ -184,10 +184,10 @@ parseStreamMuxConfigStr(char const* configStr,
     unsigned char nextByte;
 
     if (!getByte(configStr, nextByte)) break;
-    audioMuxVersion = (nextByte&0x80)>>7;
-    if (audioMuxVersion != 0) break;
+    audioMuxVersion = (nextByte&0x80) != 0;
+    if (audioMuxVersion) break;
 
-    allStreamsSameTimeFraming = (nextByte&0x40)>>6;
+    allStreamsSameTimeFraming = ((nextByte&0x40)>>6) != 0;
     numSubFrames = (nextByte&0x3F);
 
     if (!getByte(configStr, nextByte)) break;

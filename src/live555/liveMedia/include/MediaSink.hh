@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // Media Sinks
 // C++ header
 
@@ -50,7 +50,8 @@ protected:
   virtual Boolean continuePlaying() = 0;
       // called by startPlaying()
 
-  static void onSourceClosure(void* clientData);
+  static void onSourceClosure(void* clientData); // can be used in "getNextFrame()" calls
+  void onSourceClosure();
       // should be called (on ourselves) by continuePlaying() when it
       // discovers that the source we're playing from has closed.
 
@@ -69,10 +70,13 @@ private:
 // A data structure that a sink may use for an output packet:
 class OutPacketBuffer {
 public:
-  OutPacketBuffer(unsigned preferredPacketSize, unsigned maxPacketSize);
+  OutPacketBuffer(unsigned preferredPacketSize, unsigned maxPacketSize,
+		  unsigned maxBufferSize = 0);
+      // if "maxBufferSize" is >0, use it - instead of "maxSize" to compute the buffer size
   ~OutPacketBuffer();
 
   static unsigned maxSize;
+  static void increaseMaxSizeTo(unsigned newMaxSize) { if (newMaxSize > OutPacketBuffer::maxSize) OutPacketBuffer::maxSize = newMaxSize; }
 
   unsigned char* curPtr() const {return &fBuf[fPacketStart + fCurOffset];}
   unsigned totalBytesAvailable() const {

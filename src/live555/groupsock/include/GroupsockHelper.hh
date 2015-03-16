@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "mTunnel" multicast access service
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // Helper routines to implement 'group sockets'
 // C++ header
 
@@ -38,6 +38,11 @@ Boolean writeSocket(UsageEnvironment& env,
 		    u_int8_t ttlArg,
 		    unsigned char* buffer, unsigned bufferSize);
 
+Boolean writeSocket(UsageEnvironment& env,
+		    int socket, struct in_addr address, Port port,
+		    unsigned char* buffer, unsigned bufferSize);
+    // An optimized version of "writeSocket" that omits the "setsockopt()" call to set the TTL.
+
 unsigned getSendBufferSize(UsageEnvironment& env, int socket);
 unsigned getReceiveBufferSize(UsageEnvironment& env, int socket);
 unsigned setSendBufferTo(UsageEnvironment& env,
@@ -50,7 +55,8 @@ unsigned increaseReceiveBufferTo(UsageEnvironment& env,
 				 int socket, unsigned requestedSize);
 
 Boolean makeSocketNonBlocking(int sock);
-Boolean makeSocketBlocking(int sock);
+Boolean makeSocketBlocking(int sock, unsigned writeTimeoutInMilliseconds = 0);
+  // A "writeTimeoutInMilliseconds" value of 0 means: Don't timeout
 
 Boolean socketJoinGroup(UsageEnvironment& env, int socket,
 			netAddressBits groupAddress);
