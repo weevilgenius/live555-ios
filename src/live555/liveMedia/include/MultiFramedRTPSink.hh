@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // RTP sink for a common kind of payload format: Those which pack multiple,
 // complete codec frames (as many as possible) into each RTP packet.
 // C++ header
@@ -76,7 +76,7 @@ protected:
   // Functions that might be called by doSpecialFrameHandling(), or other subclass virtual functions:
   Boolean isFirstPacket() const { return fIsFirstPacket; }
   Boolean isFirstFrameInPacket() const { return fNumFramesUsedSoFar == 0; }
-  Boolean curFragmentationOffset() const { return fCurFragmentationOffset; }
+  unsigned curFragmentationOffset() const { return fCurFragmentationOffset; }
   void setMarkerBit();
   void setTimestamp(struct timeval framePresentationTime);
   void setSpecialHeaderWord(unsigned word, /* 32 bits, in host order */

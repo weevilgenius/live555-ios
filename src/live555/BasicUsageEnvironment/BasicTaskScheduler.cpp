@@ -13,7 +13,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // Basic Usage Environment: for a simple, non-scripted, console application
 // Implementation
 
@@ -28,25 +28,35 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 
 ////////// BasicTaskScheduler //////////
 
-BasicTaskScheduler* BasicTaskScheduler::createNew() {
-	return new BasicTaskScheduler();
+BasicTaskScheduler* BasicTaskScheduler::createNew(unsigned maxSchedulerGranularity) {
+	return new BasicTaskScheduler(maxSchedulerGranularity);
 }
 
-#define MAX_SCHEDULER_GRANULARITY 10000 // 10 microseconds: We will return to the event loop at least this often
-static void schedulerTickTask(void* clientData) {
-  ((BasicTaskScheduler*)clientData)->scheduleDelayedTask(MAX_SCHEDULER_GRANULARITY, schedulerTickTask, clientData);
-}
-
-BasicTaskScheduler::BasicTaskScheduler()
-  : fMaxNumSockets(0) {
+BasicTaskScheduler::BasicTaskScheduler(unsigned maxSchedulerGranularity)
+  : fMaxSchedulerGranularity(maxSchedulerGranularity), fMaxNumSockets(0)
+#if defined(__WIN32__) || defined(_WIN32)
+  , fDummySocketNum(-1)
+#endif
+{
   FD_ZERO(&fReadSet);
   FD_ZERO(&fWriteSet);
   FD_ZERO(&fExceptionSet);
 
-  schedulerTickTask(this); // ensures that we handle events frequently
+  if (maxSchedulerGranularity > 0) schedulerTickTask(); // ensures that we handle events frequently
 }
 
 BasicTaskScheduler::~BasicTaskScheduler() {
+#if defined(__WIN32__) || defined(_WIN32)
+  if (fDummySocketNum >= 0) closeSocket(fDummySocketNum);
+#endif
+}
+
+void BasicTaskScheduler::schedulerTickTask(void* clientData) {
+  ((BasicTaskScheduler*)clientData)->schedulerTickTask();
+}
+
+void BasicTaskScheduler::schedulerTickTask() {
+  scheduleDelayedTask(fMaxSchedulerGranularity, schedulerTickTask, this);
 }
 
 #ifndef MILLION
@@ -86,8 +96,9 @@ void BasicTaskScheduler::SingleStep(unsigned maxDelayTime) {
     if (err == WSAEINVAL && readSet.fd_count == 0) {
       err = EINTR;
       // To stop this from happening again, create a dummy socket:
-      int dummySocketNum = socket(AF_INET, SOCK_DGRAM, 0);
-      FD_SET((unsigned)dummySocketNum, &fReadSet);
+      if (fDummySocketNum >= 0) closeSocket(fDummySocketNum);
+      fDummySocketNum = socket(AF_INET, SOCK_DGRAM, 0);
+      FD_SET((unsigned)fDummySocketNum, &fReadSet);
     }
     if (err != EINTR) {
 #else
@@ -96,6 +107,20 @@ void BasicTaskScheduler::SingleStep(unsigned maxDelayTime) {
 	// Unexpected error - treat this as fatal:
 #if !defined(_WIN32_WCE)
 	perror("BasicTaskScheduler::SingleStep(): select() fails");
+	// Because this failure is often "Bad file descriptor" - which is caused by an invalid socket number (i.e., a socket number
+	// that had already been closed) being used in "select()" - we print out the sockets that were being used in "select()",
+	// to assist in debugging:
+	fprintf(stderr, "socket numbers used in the select() call:");
+	for (int i = 0; i < 10000; ++i) {
+	  if (FD_ISSET(i, &fReadSet) || FD_ISSET(i, &fWriteSet) || FD_ISSET(i, &fExceptionSet)) {
+	    fprintf(stderr, " %d(", i);
+	    if (FD_ISSET(i, &fReadSet)) fprintf(stderr, "r");
+	    if (FD_ISSET(i, &fWriteSet)) fprintf(stderr, "w");
+	    if (FD_ISSET(i, &fExceptionSet)) fprintf(stderr, "e");
+	    fprintf(stderr, ")");
+	  }
+	}
+	fprintf(stderr, "\n");
 #endif
 	internalError();
       }
@@ -155,7 +180,7 @@ void BasicTaskScheduler::SingleStep(unsigned maxDelayTime) {
   if (fTriggersAwaitingHandling != 0) {
     if (fTriggersAwaitingHandling == fLastUsedTriggerMask) {
       // Common-case optimization for a single event trigger:
-      fTriggersAwaitingHandling = 0;
+      fTriggersAwaitingHandling &=~ fLastUsedTriggerMask;
       if (fTriggeredEventHandlers[fLastUsedTriggerNum] != NULL) {
 	(*fTriggeredEventHandlers[fLastUsedTriggerNum])(fTriggeredEventClientDatas[fLastUsedTriggerNum]);
       }
@@ -190,6 +215,9 @@ void BasicTaskScheduler::SingleStep(unsigned maxDelayTime) {
 void BasicTaskScheduler
   ::setBackgroundHandling(int socketNum, int conditionSet, BackgroundHandlerProc* handlerProc, void* clientData) {
   if (socketNum < 0) return;
+#if !defined(__WIN32__) && !defined(_WIN32) && defined(FD_SETSIZE)
+  if (socketNum >= (int)(FD_SETSIZE)) return;
+#endif
   FD_CLR((unsigned)socketNum, &fReadSet);
   FD_CLR((unsigned)socketNum, &fWriteSet);
   FD_CLR((unsigned)socketNum, &fExceptionSet);
@@ -211,6 +239,9 @@ void BasicTaskScheduler
 
 void BasicTaskScheduler::moveSocketHandling(int oldSocketNum, int newSocketNum) {
   if (oldSocketNum < 0 || newSocketNum < 0) return; // sanity check
+#if !defined(__WIN32__) && !defined(_WIN32) && defined(FD_SETSIZE)
+  if (oldSocketNum >= (int)(FD_SETSIZE) || newSocketNum >= (int)(FD_SETSIZE)) return; // sanity check
+#endif
   if (FD_ISSET(oldSocketNum, &fReadSet)) {FD_CLR((unsigned)oldSocketNum, &fReadSet); FD_SET((unsigned)newSocketNum, &fReadSet);}
   if (FD_ISSET(oldSocketNum, &fWriteSet)) {FD_CLR((unsigned)oldSocketNum, &fWriteSet); FD_SET((unsigned)newSocketNum, &fWriteSet);}
   if (FD_ISSET(oldSocketNum, &fExceptionSet)) {FD_CLR((unsigned)oldSocketNum, &fExceptionSet); FD_SET((unsigned)newSocketNum, &fExceptionSet);}

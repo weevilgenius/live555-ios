@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A server demultiplexer for a MPEG 1 or 2 Program Stream
 // Implementation
 
@@ -240,7 +240,7 @@ void MFSD_DummySink::afterGettingFrame1() {
   if (fReturnFirstSeenCode && fOurDemux.lastSeenSCR().isValid) {
     // We were asked to return the first SCR that we saw, and we've seen one,
     // so we're done.  (Handle this as if the input source had closed.)
-    onSourceClosure(this);
+    onSourceClosure();
     return;
   }
 

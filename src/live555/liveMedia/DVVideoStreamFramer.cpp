@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A filter that parses a DV input stream into DV frames to deliver to the downstream object
 // Implementation
 // (Thanks to Ben Hutchings for his help, including a prototype implementation.)
@@ -24,8 +24,10 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 
 ////////// DVVideoStreamFramer implementation //////////
 
-DVVideoStreamFramer::DVVideoStreamFramer(UsageEnvironment& env, FramedSource* inputSource, Boolean sourceIsSeekable)
+DVVideoStreamFramer::DVVideoStreamFramer(UsageEnvironment& env, FramedSource* inputSource,
+					 Boolean sourceIsSeekable, Boolean leavePresentationTimesUnmodified)
   : FramedFilter(env, inputSource),
+    fLeavePresentationTimesUnmodified(leavePresentationTimesUnmodified),
     fOurProfile(NULL), fInitialBlocksPresent(False), fSourceIsSeekable(sourceIsSeekable) {
   fTo = NULL; // hack used when reading "fSavedInitialBlocks"
   // Use the current wallclock time as the initial 'presentation time':
@@ -36,8 +38,9 @@ DVVideoStreamFramer::~DVVideoStreamFramer() {
 }
 
 DVVideoStreamFramer*
-DVVideoStreamFramer::createNew(UsageEnvironment& env, FramedSource* inputSource, Boolean sourceIsSeekable) {
-  return new DVVideoStreamFramer(env, inputSource, sourceIsSeekable);
+DVVideoStreamFramer::createNew(UsageEnvironment& env, FramedSource* inputSource,
+			       Boolean sourceIsSeekable, Boolean leavePresentationTimesUnmodified) {
+  return new DVVideoStreamFramer(env, inputSource, sourceIsSeekable, leavePresentationTimesUnmodified);
 }
 
 // Define the parameters for the profiles that we understand:
@@ -131,9 +134,9 @@ void DVVideoStreamFramer::getAndDeliverData() {
 
 void DVVideoStreamFramer::afterGettingFrame(void* clientData, unsigned frameSize,
 					    unsigned numTruncatedBytes,
-					    struct timeval /*presentationTime*/, unsigned /*durationInMicroseconds*/) {
+					    struct timeval presentationTime, unsigned /*durationInMicroseconds*/) {
   DVVideoStreamFramer* source = (DVVideoStreamFramer*)clientData;
-  source->afterGettingFrame1(frameSize, numTruncatedBytes);
+  source->afterGettingFrame(frameSize, numTruncatedBytes, presentationTime);
 }
 
 #define DVSectionId(n) ptr[(n)*DV_DIF_BLOCK_SIZE + 0]
@@ -149,7 +152,7 @@ void DVVideoStreamFramer::afterGettingFrame(void* clientData, unsigned frameSize
 #define MILLION 1000000
 #endif
 
-void DVVideoStreamFramer::afterGettingFrame1(unsigned frameSize, unsigned numTruncatedBytes) {
+void DVVideoStreamFramer::afterGettingFrame(unsigned frameSize, unsigned numTruncatedBytes, struct timeval presentationTime) {
   if (fOurProfile == NULL && frameSize >= DV_SAVED_INITIAL_BLOCKS_SIZE) {
     // (Try to) parse this data enough to figure out its profile.
     // We assume that the data begins on a (80-byte) block boundary, but not necessarily on a (150-block) sequence boundary.
@@ -186,6 +189,7 @@ void DVVideoStreamFramer::afterGettingFrame1(unsigned frameSize, unsigned numTru
       = fOurProfile != NULL ? ((DVVideoProfile const*)fOurProfile)->dvFrameSize : DV_SMALLEST_POSSIBLE_FRAME_SIZE;
     fFrameSize += frameSize;
     fTo += frameSize;
+    fPresentationTime = presentationTime; // by default; may get changed below
 
     if (fFrameSize < totFrameSize && fFrameSize < fMaxSize && numTruncatedBytes == 0) {
       // We have more data to deliver; get it now:
@@ -197,7 +201,7 @@ void DVVideoStreamFramer::afterGettingFrame1(unsigned frameSize, unsigned numTru
       if (fOurProfile != NULL) {
 	// Also set the presentation time, and increment it for next time,
 	// based on the length of this frame:
-	fPresentationTime = fNextFramePresentationTime;
+	if (!fLeavePresentationTimesUnmodified) fPresentationTime = fNextFramePresentationTime;
 
 	DVVideoProfile const* ourProfile =(DVVideoProfile const*)fOurProfile;
 	double durationInMicroseconds = (fFrameSize*ourProfile->frameDuration)/ourProfile->dvFrameSize;

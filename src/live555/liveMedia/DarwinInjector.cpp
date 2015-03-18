@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // An object that redirects one or more RTP/RTCP streams - forming a single
 // multimedia session - into a 'Darwin Streaming Server' (for subsequent
 // reflection to potentially arbitrarily many remote RTSP clients).
@@ -72,7 +72,7 @@ DarwinInjector::DarwinInjector(UsageEnvironment& env,
   : Medium(env),
     fApplicationName(strDup(applicationName)), fVerbosityLevel(verbosityLevel),
     fRTSPClient(NULL), fSubstreamSDPSizes(0),
-    fHeadSubstream(NULL), fTailSubstream(NULL), fSession(NULL), fLastTrackId(0) {
+    fHeadSubstream(NULL), fTailSubstream(NULL), fSession(NULL), fLastTrackId(0), fResultString(NULL) {
 }
 
 DarwinInjector::~DarwinInjector() {
@@ -105,7 +105,7 @@ class RTSPClientForDarwinInjector: public RTSPClient {
 public:
   RTSPClientForDarwinInjector(UsageEnvironment& env, char const* rtspURL, int verbosityLevel, char const* applicationName,
 			      DarwinInjector* ourDarwinInjector)
-    : RTSPClient(env, rtspURL, verbosityLevel, applicationName, 0),
+    : RTSPClient(env, rtspURL, verbosityLevel, applicationName, 0, -1),
       fOurDarwinInjector(ourDarwinInjector) {}
   virtual ~RTSPClientForDarwinInjector() {}
   DarwinInjector* fOurDarwinInjector;

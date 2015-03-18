@@ -13,7 +13,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // Basic Hash Table implementation
 // C++ header
 
@@ -44,13 +44,13 @@ public:
   class Iterator; friend class Iterator; // to make Sun's C++ compiler happy
   class Iterator: public HashTable::Iterator {
   public:
-    Iterator(BasicHashTable& table);
+    Iterator(BasicHashTable const& table);
 
   private: // implementation of inherited pure virtual functions
     void* next(char const*& key); // returns 0 if none
 
   private:
-    BasicHashTable& fTable;
+    BasicHashTable const& fTable;
     unsigned fNextIndex; // index of next bucket to be enumerated after this
     TableEntry* fNextEntry; // next entry in the current bucket
   };

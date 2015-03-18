@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "mTunnel" multicast access service
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // Helper routines to implement 'group sockets'
 // Implementation
 
@@ -181,17 +181,29 @@ Boolean makeSocketNonBlocking(int sock) {
 #endif
 }
 
-Boolean makeSocketBlocking(int sock) {
+Boolean makeSocketBlocking(int sock, unsigned writeTimeoutInMilliseconds) {
+  Boolean result;
 #if defined(__WIN32__) || defined(_WIN32)
   unsigned long arg = 0;
-  return ioctlsocket(sock, FIONBIO, &arg) == 0;
+  result = ioctlsocket(sock, FIONBIO, &arg) == 0;
 #elif defined(VXWORKS)
   int arg = 0;
-  return ioctl(sock, FIONBIO, (int)&arg) == 0;
+  result = ioctl(sock, FIONBIO, (int)&arg) == 0;
 #else
   int curFlags = fcntl(sock, F_GETFL, 0);
-  return fcntl(sock, F_SETFL, curFlags&(~O_NONBLOCK)) >= 0;
+  result = fcntl(sock, F_SETFL, curFlags&(~O_NONBLOCK)) >= 0;
 #endif
+
+  if (writeTimeoutInMilliseconds > 0) {
+#ifdef SO_SNDTIMEO
+    struct timeval tv;
+    tv.tv_sec = writeTimeoutInMilliseconds/1000;
+    tv.tv_usec = (writeTimeoutInMilliseconds%1000)*1000;
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&tv, sizeof tv);
+#endif
+  }
+
+  return result;
 }
 
 int setupStreamSocket(UsageEnvironment& env,
@@ -292,6 +304,9 @@ int readSocket(UsageEnvironment& env,
     }
     //##### END HACK
     socketErr(env, "recvfrom() error: ");
+  } else if (bytesRead == 0) {
+    // "recvfrom()" on a stream socket can return 0 if the remote end has closed the connection.  Treat this as an error:
+    return -1;
   }
 
   return bytesRead;
@@ -301,36 +316,40 @@ Boolean writeSocket(UsageEnvironment& env,
 		    int socket, struct in_addr address, Port port,
 		    u_int8_t ttlArg,
 		    unsigned char* buffer, unsigned bufferSize) {
-	do {
-		if (ttlArg != 0) {
-			// Before sending, set the socket's TTL:
+  // Before sending, set the socket's TTL:
 #if defined(__WIN32__) || defined(_WIN32)
 #define TTL_TYPE int
 #else
 #define TTL_TYPE u_int8_t
 #endif
-			TTL_TYPE ttl = (TTL_TYPE)ttlArg;
-			if (setsockopt(socket, IPPROTO_IP, IP_MULTICAST_TTL,
-				       (const char*)&ttl, sizeof ttl) < 0) {
-				socketErr(env, "setsockopt(IP_MULTICAST_TTL) error: ");
-				break;
-			}
-		}
+  TTL_TYPE ttl = (TTL_TYPE)ttlArg;
+  if (setsockopt(socket, IPPROTO_IP, IP_MULTICAST_TTL,
+		 (const char*)&ttl, sizeof ttl) < 0) {
+    socketErr(env, "setsockopt(IP_MULTICAST_TTL) error: ");
+    return False;
+  }
 
-		MAKE_SOCKADDR_IN(dest, address.s_addr, port.num());
-		int bytesSent = sendto(socket, (char*)buffer, bufferSize, 0,
-			               (struct sockaddr*)&dest, sizeof dest);
-		if (bytesSent != (int)bufferSize) {
-			char tmpBuf[100];
-			sprintf(tmpBuf, "writeSocket(%d), sendTo() error: wrote %d bytes instead of %u: ", socket, bytesSent, bufferSize);
-			socketErr(env, tmpBuf);
-			break;
-		}
+  return writeSocket(env, socket, address, port, buffer, bufferSize);
+}
 
-		return True;
-	} while (0);
+Boolean writeSocket(UsageEnvironment& env,
+		    int socket, struct in_addr address, Port port,
+		    unsigned char* buffer, unsigned bufferSize) {
+  do {
+    MAKE_SOCKADDR_IN(dest, address.s_addr, port.num());
+    int bytesSent = sendto(socket, (char*)buffer, bufferSize, 0,
+			   (struct sockaddr*)&dest, sizeof dest);
+    if (bytesSent != (int)bufferSize) {
+      char tmpBuf[100];
+      sprintf(tmpBuf, "writeSocket(%d), sendTo() error: wrote %d bytes instead of %u: ", socket, bytesSent, bufferSize);
+      socketErr(env, tmpBuf);
+      break;
+    }
+    
+    return True;
+  } while (0);
 
-	return False;
+  return False;
 }
 
 static unsigned getBufferSize(UsageEnvironment& env, int bufOptName,
@@ -398,6 +417,17 @@ unsigned increaseReceiveBufferTo(UsageEnvironment& env,
   return increaseBufferTo(env, SO_RCVBUF, socket, requestedSize);
 }
 
+static void clearMulticastAllSocketOption(int socket) {
+#ifdef IP_MULTICAST_ALL
+  // This option is defined in modern versions of Linux to overcome a bug in the Linux kernel's default behavior.
+  // When set to 0, it ensures that we receive only packets that were sent to the specified IP multicast address,
+  // even if some other process on the same system has joined a different multicast group with the same port number.
+  int multicastAll = 0;
+  (void)setsockopt(socket, IPPROTO_IP, IP_MULTICAST_ALL, (void*)&multicastAll, sizeof multicastAll);
+  // Ignore the call's result.  Should it fail, we'll still receive packets (just perhaps more than intended)
+#endif
+}
+
 Boolean socketJoinGroup(UsageEnvironment& env, int socket,
 			netAddressBits groupAddress){
   if (!IsMulticastAddress(groupAddress)) return True; // ignore this case
@@ -418,6 +448,8 @@ Boolean socketJoinGroup(UsageEnvironment& env, int socket,
     }
 #endif
   }
+
+  clearMulticastAllSocketOption(socket);
 
   return True;
 }
@@ -466,14 +498,22 @@ Boolean socketJoinGroupSSM(UsageEnvironment& env, int socket,
   if (!IsMulticastAddress(groupAddress)) return True; // ignore this case
 
   struct ip_mreq_source imr;
-  imr.imr_multiaddr.s_addr = groupAddress;
-  imr.imr_sourceaddr.s_addr = sourceFilterAddr;
-  imr.imr_interface.s_addr = ReceivingInterfaceAddr;
+#ifdef __ANDROID__
+    imr.imr_multiaddr = groupAddress;
+    imr.imr_sourceaddr = sourceFilterAddr;
+    imr.imr_interface = ReceivingInterfaceAddr;
+#else
+    imr.imr_multiaddr.s_addr = groupAddress;
+    imr.imr_sourceaddr.s_addr = sourceFilterAddr;
+    imr.imr_interface.s_addr = ReceivingInterfaceAddr;
+#endif
   if (setsockopt(socket, IPPROTO_IP, IP_ADD_SOURCE_MEMBERSHIP,
 		 (const char*)&imr, sizeof (struct ip_mreq_source)) < 0) {
     socketErr(env, "setsockopt(IP_ADD_SOURCE_MEMBERSHIP) error: ");
     return False;
   }
+
+  clearMulticastAllSocketOption(socket);
 
   return True;
 }
@@ -484,9 +524,15 @@ Boolean socketLeaveGroupSSM(UsageEnvironment& /*env*/, int socket,
   if (!IsMulticastAddress(groupAddress)) return True; // ignore this case
 
   struct ip_mreq_source imr;
-  imr.imr_multiaddr.s_addr = groupAddress;
-  imr.imr_sourceaddr.s_addr = sourceFilterAddr;
-  imr.imr_interface.s_addr = ReceivingInterfaceAddr;
+#ifdef __ANDROID__
+    imr.imr_multiaddr = groupAddress;
+    imr.imr_sourceaddr = sourceFilterAddr;
+    imr.imr_interface = ReceivingInterfaceAddr;
+#else
+    imr.imr_multiaddr.s_addr = groupAddress;
+    imr.imr_sourceaddr.s_addr = sourceFilterAddr;
+    imr.imr_interface.s_addr = ReceivingInterfaceAddr;
+#endif
   if (setsockopt(socket, IPPROTO_IP, IP_DROP_SOURCE_MEMBERSHIP,
 		 (const char*)&imr, sizeof (struct ip_mreq_source)) < 0) {
     return False;
@@ -536,6 +582,12 @@ netAddressBits ourIPAddress(UsageEnvironment& env) {
   int sock = -1;
   struct in_addr testAddr;
 
+  if (ReceivingInterfaceAddr != INADDR_ANY) {
+    // Hack: If we were told to receive on a specific interface address, then 
+    // define this to be our ip address:
+    ourAddress = ReceivingInterfaceAddr;
+  }
+
   if (ourAddress == 0) {
     // We need to find our source address
     struct sockaddr_in fromAddr;
@@ -582,7 +634,8 @@ netAddressBits ourIPAddress(UsageEnvironment& env) {
 	break;
       }
 
-      loopbackWorks = 1;
+      // We use this packet's source address, if it's good:
+      loopbackWorks = !badAddressForUs(fromAddr.sin_addr.s_addr);
     } while (0);
 
     if (sock >= 0) {
@@ -659,7 +712,9 @@ char const* timestampString() {
 
 #if !defined(_WIN32_WCE)
   static char timeString[9]; // holds hh:mm:ss plus trailing '\0'
-  char const* ctimeResult = ctime((time_t*)&tvNow.tv_sec);
+
+  time_t tvNow_t = tvNow.tv_sec;
+  char const* ctimeResult = ctime(&tvNow_t);
   if (ctimeResult == NULL) {
     sprintf(timeString, "??:??:??");
   } else {
@@ -683,58 +738,85 @@ char const* timestampString() {
 
 #if defined(__WIN32__) || defined(_WIN32)
 // For Windoze, we need to implement our own gettimeofday()
+
+// used to make sure that static variables in gettimeofday() aren't initialized simultaneously by multiple threads
+static LONG initializeLock_gettimeofday = 0;  
+
 #if !defined(_WIN32_WCE)
 #include <sys/timeb.h>
 #endif
 
 int gettimeofday(struct timeval* tp, int* /*tz*/) {
-#if defined(_WIN32_WCE)
-  /* FILETIME of Jan 1 1970 00:00:00. */
-  static const unsigned __int64 epoch = 116444736000000000LL;
-
-  FILETIME    file_time;
-  SYSTEMTIME  system_time;
-  ULARGE_INTEGER ularge;
-
-  GetSystemTime(&system_time);
-  SystemTimeToFileTime(&system_time, &file_time);
-  ularge.LowPart = file_time.dwLowDateTime;
-  ularge.HighPart = file_time.dwHighDateTime;
-
-  tp->tv_sec = (long) ((ularge.QuadPart - epoch) / 10000000L);
-  tp->tv_usec = (long) (system_time.wMilliseconds * 1000);
-#else
   static LARGE_INTEGER tickFrequency, epochOffset;
 
-  // For our first call, use "ftime()", so that we get a time with a proper epoch.
-  // For subsequent calls, use "QueryPerformanceCount()", because it's more fine-grain.
-  static Boolean isFirstCall = True;
+  static Boolean isInitialized = False;
 
   LARGE_INTEGER tickNow;
+
+#if !defined(_WIN32_WCE)
   QueryPerformanceCounter(&tickNow);
-
-  if (isFirstCall) {
-    struct timeb tb;
-    ftime(&tb);
-    tp->tv_sec = tb.time;
-    tp->tv_usec = 1000*tb.millitm;
-
-    // Also get our counter frequency:
-    QueryPerformanceFrequency(&tickFrequency);
-
-    // And compute an offset to add to subsequent counter times, so we get a proper epoch:
-    epochOffset.QuadPart
-      = tb.time*tickFrequency.QuadPart + (tb.millitm*tickFrequency.QuadPart)/1000 - tickNow.QuadPart;
-
-    isFirstCall = False; // for next time
-  } else {
-    // Adjust our counter time so that we get a proper epoch:
-    tickNow.QuadPart += epochOffset.QuadPart;
-
-    tp->tv_sec = (long) (tickNow.QuadPart / tickFrequency.QuadPart);
-    tp->tv_usec = (long) (((tickNow.QuadPart % tickFrequency.QuadPart) * 1000000L) / tickFrequency.QuadPart);
-  }
+#else
+  tickNow.QuadPart = GetTickCount();
 #endif
+ 
+  if (!isInitialized) {
+    if(1 == InterlockedIncrement(&initializeLock_gettimeofday)) {
+#if !defined(_WIN32_WCE)
+      // For our first call, use "ftime()", so that we get a time with a proper epoch.
+      // For subsequent calls, use "QueryPerformanceCount()", because it's more fine-grain.
+      struct timeb tb;
+      ftime(&tb);
+      tp->tv_sec = tb.time;
+      tp->tv_usec = 1000*tb.millitm;
+
+      // Also get our counter frequency:
+      QueryPerformanceFrequency(&tickFrequency);
+#else
+      /* FILETIME of Jan 1 1970 00:00:00. */
+      const LONGLONG epoch = 116444736000000000LL;
+      FILETIME fileTime;
+      LARGE_INTEGER time;
+      GetSystemTimeAsFileTime(&fileTime);
+
+      time.HighPart = fileTime.dwHighDateTime;
+      time.LowPart = fileTime.dwLowDateTime;
+
+      // convert to from 100ns time to unix timestamp in seconds, 1000*1000*10
+      tp->tv_sec = (long)((time.QuadPart - epoch) / 10000000L);
+
+      /*
+        GetSystemTimeAsFileTime has just a seconds resolution,
+        thats why wince-version of gettimeofday is not 100% accurate, usec accuracy would be calculated like this:
+        // convert 100 nanoseconds to usec
+        tp->tv_usec= (long)((time.QuadPart - epoch)%10000000L) / 10L;
+      */
+      tp->tv_usec = 0;
+
+      // resolution of GetTickCounter() is always milliseconds
+      tickFrequency.QuadPart = 1000;
+#endif     
+      // compute an offset to add to subsequent counter times, so we get a proper epoch:
+      epochOffset.QuadPart
+          = tp->tv_sec * tickFrequency.QuadPart + (tp->tv_usec * tickFrequency.QuadPart) / 1000000L - tickNow.QuadPart;
+      
+      // next caller can use ticks for time calculation
+      isInitialized = True; 
+      return 0;
+    } else {
+        InterlockedDecrement(&initializeLock_gettimeofday);
+        // wait until first caller has initialized static values
+        while(!isInitialized){
+          Sleep(1);
+        }
+    }
+  }
+
+  // adjust our tick count so that we get a proper epoch:
+  tickNow.QuadPart += epochOffset.QuadPart;
+
+  tp->tv_sec =  (long)(tickNow.QuadPart / tickFrequency.QuadPart);
+  tp->tv_usec = (long)(((tickNow.QuadPart % tickFrequency.QuadPart) * 1000000L) / tickFrequency.QuadPart);
+
   return 0;
 }
 #endif

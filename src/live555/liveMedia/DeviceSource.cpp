@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A template for a MediaSource encapsulating an audio/video input device
 //
 // NOTE: Sections of this code labeled "%%% TO BE WRITTEN %%%" are incomplete, and need to be written by the programmer
@@ -80,7 +80,7 @@ void DeviceSource::doGetNextFrame() {
 
   // Note: If, for some reason, the source device stops being readable (e.g., it gets closed), then you do the following:
   if (0 /* the source stops being readable */ /*%%% TO BE WRITTEN %%%*/) {
-    handleClosure(this);
+    handleClosure();
     return;
   }
 
@@ -143,6 +143,9 @@ void DeviceSource::deliverFrame() {
 
 // The following code would be called to signal that a new frame of data has become available.
 // This (unlike other "LIVE555 Streaming Media" library code) may be called from a separate thread.
+// (Note, however, that "triggerEvent()" cannot be called with the same 'event trigger id' from different threads.
+// Also, if you want to have multiple device threads, each one using a different 'event trigger id', then you will need
+// to make "eventTriggerId" a non-static member variable of "DeviceSource".)
 void signalNewFrameData() {
   TaskScheduler* ourScheduler = NULL; //%%% TO BE WRITTEN %%%
   DeviceSource* ourDevice  = NULL; //%%% TO BE WRITTEN %%%

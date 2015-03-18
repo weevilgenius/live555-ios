@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // RTP sink for H.263+ video (RFC 4629)
 // Implementation
 
@@ -63,8 +63,7 @@ void H263plusVideoRTPSink
       return;
     }
     if (frameStart[0] != 0 || frameStart[1] != 0) {
-      envir() << "H263plusVideoRTPSink::doSpecialFrameHandling(): unexpected non-zero first two bytes: "
-	      << (void*)(frameStart[0]) << "," << (void*)(frameStart[1]) << "\n";
+      envir() << "H263plusVideoRTPSink::doSpecialFrameHandling(): unexpected non-zero first two bytes!\n";
     }
     frameStart[0] = specialHeader>>8;
     frameStart[1] = (unsigned char)specialHeader;

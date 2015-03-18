@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // Author Bernhard Feiten
 // A filter that breaks up an H.263plus video stream into frames.
 // Based on MPEG4IP/mp4creator/h263.c
@@ -632,7 +632,7 @@ static int LoadNextH263Object(  FILE           *inputFileHandle,
   // This table and the following loop implements a state machine enabling
   // us to read bytes from the file untill (and inclusing) the requested
   // start code (00 00 8X) is found
-  int8_t        row = 0;
+  char        row = 0;
   u_int8_t     *bufferStart = frameBuffer;
   // The buffer end which will allow the loop to leave place for
   // the additionalBytesNeeded

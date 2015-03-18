@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // Qualcomm "PureVoice" (aka. "QCELP") Audio RTP Sources
 // Implementation
 
@@ -408,7 +408,7 @@ void QCELPDeinterleavingBuffer
 #ifdef DEBUG
     fprintf(stderr, "QCELPDeinterleavingBuffer::deliverIncomingFrame() param sanity check failed (%d,%d,%d,%d)\n", frameSize, interleaveL, interleaveN, frameIndex);
 #endif
-    abort();
+    return;
   }
 
   // The input "presentationTime" was that of the first frame in this

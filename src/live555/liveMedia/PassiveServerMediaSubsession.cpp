@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A 'ServerMediaSubsession' object that represents an existing
 // 'RTPSink', rather than one that creates new 'RTPSink's on demand.
 // Implementation
@@ -60,6 +60,13 @@ PassiveServerMediaSubsession::~PassiveServerMediaSubsession() {
   delete fClientRTCPSourceRecords;
 }
 
+Boolean PassiveServerMediaSubsession::rtcpIsMuxed() {
+  if (fRTCPInstance == NULL) return False;
+
+  // Check whether RTP and RTCP use the same "groupsock" object:
+  return &(fRTPSink.groupsockBeingUsed()) == fRTCPInstance->RTCPgs();
+}
+
 char const*
 PassiveServerMediaSubsession::sdpLines() {
   if (fSDPLines == NULL ) {
@@ -74,6 +81,7 @@ PassiveServerMediaSubsession::sdpLines() {
     unsigned estBitrate
       = fRTCPInstance == NULL ? 50 : fRTCPInstance->totSessionBW();
     char* rtpmapLine = fRTPSink.rtpmapLine();
+    char const* rtcpmuxLine = rtcpIsMuxed() ? "a=rtcp-mux\r\n" : "";
     char const* rangeLine = rangeSDPLine();
     char const* auxSDPLine = fRTPSink.auxSDPLine();
     if (auxSDPLine == NULL) auxSDPLine = "";
@@ -85,12 +93,14 @@ PassiveServerMediaSubsession::sdpLines() {
       "%s"
       "%s"
       "%s"
+      "%s"
       "a=control:%s\r\n";
     unsigned sdpFmtSize = strlen(sdpFmt)
       + strlen(mediaType) + 5 /* max short len */ + 3 /* max char len */
       + strlen(groupAddressStr.val()) + 3 /* max char len */
       + 20 /* max int len */
       + strlen(rtpmapLine)
+      + strlen(rtcpmuxLine)
       + strlen(rangeLine)
       + strlen(auxSDPLine)
       + strlen(trackId());
@@ -103,6 +113,7 @@ PassiveServerMediaSubsession::sdpLines() {
 	    ttl, // c= TTL
 	    estBitrate, // b=AS:<bandwidth>
 	    rtpmapLine, // a=rtpmap:... (if present)
+	    rtcpmuxLine, // a=rtcp-mux:... (if present)
 	    rangeLine, // a=range:... (if present)
 	    auxSDPLine, // optional extra SDP line
 	    trackId()); // a=control:<track-id>
@@ -172,14 +183,28 @@ void PassiveServerMediaSubsession::startStream(unsigned clientSessionId,
   if (rtpBufSize < 50 * 1024) rtpBufSize = 50 * 1024;
   increaseSendBufferTo(envir(), fRTPSink.groupsockBeingUsed().socketNum(), rtpBufSize);
 
-  // Set up the handler for incoming RTCP "RR" packets from this client:
   if (fRTCPInstance != NULL) {
+    // Hack: Send a RTCP "SR" packet now, so that receivers will (likely) be able to
+    // get RTCP-synchronized presentation times immediately:
+    fRTCPInstance->sendReport();
+
+    // Set up the handler for incoming RTCP "RR" packets from this client:
     RTCPSourceRecord* source = (RTCPSourceRecord*)(fClientRTCPSourceRecords->Lookup((char const*)clientSessionId));
     if (source != NULL) {
       fRTCPInstance->setSpecificRRHandler(source->addr, source->port,
 					  rtcpRRHandler, rtcpRRHandlerClientData);
     }
   }
+}
+
+float PassiveServerMediaSubsession::getCurrentNPT(void* streamToken) {
+  // Return the elapsed time between our "RTPSink"s creation time, and the current time:
+  struct timeval const& creationTime  = fRTPSink.creationTime(); // alias
+
+  struct timeval timeNow;
+  gettimeofday(&timeNow, NULL);
+
+  return (float)(timeNow.tv_sec - creationTime.tv_sec + (timeNow.tv_usec - creationTime.tv_usec)/1000000.0);
 }
 
 void PassiveServerMediaSubsession::deleteStream(unsigned clientSessionId, void*& /*streamToken*/) {

@@ -29,3 +29,8 @@ cd ../mediaServer
 /bin/rm -f mediaServer.mak
 /bin/rm -f Makefile
 cat Makefile.head ../win32config Makefile.tail > mediaServer.mak
+
+cd ../proxyServer
+/bin/rm -f proxyServer.mak
+/bin/rm -f Makefile
+cat Makefile.head ../win32config Makefile.tail > proxyServer.mak

@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A class for streaming data from a (static) memory buffer, as if it were a file.
 // Implementation
 
@@ -40,7 +40,8 @@ ByteStreamMemoryBufferSource::ByteStreamMemoryBufferSource(UsageEnvironment& env
 							   unsigned preferredFrameSize,
 							   unsigned playTimePerFrame)
   : FramedSource(env), fBuffer(buffer), fBufferSize(bufferSize), fCurIndex(0), fDeleteBufferOnClose(deleteBufferOnClose),
-    fPreferredFrameSize(preferredFrameSize), fPlayTimePerFrame(playTimePerFrame), fLastPlayTime(0) {
+    fPreferredFrameSize(preferredFrameSize), fPlayTimePerFrame(playTimePerFrame), fLastPlayTime(0),
+    fLimitNumBytesToStream(False), fNumBytesToStream(0) {
 }
 
 ByteStreamMemoryBufferSource::~ByteStreamMemoryBufferSource() {
@@ -55,7 +56,7 @@ void ByteStreamMemoryBufferSource::seekToByteAbsolute(u_int64_t byteNumber, u_in
   fLimitNumBytesToStream = fNumBytesToStream > 0;
 }
 
-void ByteStreamMemoryBufferSource::seekToByteRelative(int64_t offset) {
+void ByteStreamMemoryBufferSource::seekToByteRelative(int64_t offset, u_int64_t numBytesToStream) {
   int64_t newIndex = fCurIndex + offset;
   if (newIndex < 0) {
     fCurIndex = 0;
@@ -63,11 +64,14 @@ void ByteStreamMemoryBufferSource::seekToByteRelative(int64_t offset) {
     fCurIndex = (u_int64_t)offset;
     if (fCurIndex > fBufferSize) fCurIndex = fBufferSize;
   }
+
+  fNumBytesToStream = numBytesToStream;
+  fLimitNumBytesToStream = fNumBytesToStream > 0;
 }
 
 void ByteStreamMemoryBufferSource::doGetNextFrame() {
   if (fCurIndex >= fBufferSize || (fLimitNumBytesToStream && fNumBytesToStream == 0)) {
-    handleClosure(this);
+    handleClosure();
     return;
   }
 

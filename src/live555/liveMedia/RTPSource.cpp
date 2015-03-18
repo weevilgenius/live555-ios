@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // RTP Sources
 // Implementation
 
@@ -53,11 +53,10 @@ RTPSource::RTPSource(UsageEnvironment& env, Groupsock* RTPgs,
 		     u_int32_t rtpTimestampFrequency)
   : FramedSource(env),
     fRTPInterface(this, RTPgs),
-    fCurPacketHasBeenSynchronizedUsingRTCP(False),
-    fLastReceivedSSRC(0),
-    fRTPPayloadFormat(rtpPayloadFormat),
-    fTimestampFrequency(rtpTimestampFrequency),
-    fSSRC(our_random32()) {
+    fCurPacketHasBeenSynchronizedUsingRTCP(False), fLastReceivedSSRC(0),
+    fRTCPInstanceForMultiplexedRTCPPackets(NULL),
+    fRTPPayloadFormat(rtpPayloadFormat), fTimestampFrequency(rtpTimestampFrequency),
+    fSSRC(our_random32()), fEnableRTCPReports(True) {
   fReceptionStatsDB = new RTPReceptionStatsDB();
 }
 
@@ -202,6 +201,8 @@ void RTPReceptionStats::init(u_int32_t SSRC) {
   fSSRC = SSRC;
   fTotNumPacketsReceived = 0;
   fTotBytesReceived_hi = fTotBytesReceived_lo = 0;
+  fBaseExtSeqNumReceived = 0;
+  fHighestExtSeqNumReceived = 0;
   fHaveSeenInitialSequenceNumber = False;
   fLastTransit = ~0;
   fPreviousPacketRTPTimestamp = 0;

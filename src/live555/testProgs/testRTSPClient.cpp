@@ -13,7 +13,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
-// Copyright (c) 1996-2012, Live Networks, Inc.  All rights reserved
+// Copyright (c) 1996-2015, Live Networks, Inc.  All rights reserved
 // A demo application, showing how to create and run a RTSP client (that can potentially receive multiple streams concurrently).
 //
 // NOTE: This code - although it builds a running application - is intended only to illustrate how to develop your own RTSP
@@ -60,6 +60,8 @@ void usage(UsageEnvironment& env, char const* progName) {
   env << "\t(where each <rtsp-url-i> is a \"rtsp://\" URL)\n";
 }
 
+char eventLoopWatchVariable = 0;
+
 int main(int argc, char** argv) {
   // Begin by setting up our usage environment:
   TaskScheduler* scheduler = BasicTaskScheduler::createNew();
@@ -77,9 +79,18 @@ int main(int argc, char** argv) {
   }
 
   // All subsequent activity takes place within the event loop:
-  env->taskScheduler().doEventLoop(); // does not return
+  env->taskScheduler().doEventLoop(&eventLoopWatchVariable);
+    // This function call does not return, unless, at some point in time, "eventLoopWatchVariable" gets set to something non-zero.
 
-  return 0; // We never actually get to this line; this is only to prevent a possible compiler warning
+  return 0;
+
+  // If you choose to continue the application past this point (i.e., if you comment out the "return 0;" statement above),
+  // and if you don't intend to do anything more with the "TaskScheduler" and "UsageEnvironment" objects,
+  // then you can also reclaim the (small) memory used by these objects by uncommenting the following code:
+  /*
+    env->reclaim(); env = NULL;
+    delete scheduler; scheduler = NULL;
+  */
 }
 
 // Define a class to hold per-stream state that we maintain throughout each stream's lifetime:
@@ -100,7 +111,7 @@ public:
 // If you're streaming just a single stream (i.e., just from a single URL, once), then you can define and use just a single
 // "StreamClientState" structure, as a global variable in your application.  However, because - in this demo application - we're
 // showing how to play multiple streams, concurrently, we can't do that.  Instead, we have to have a separate "StreamClientState"
-// struture for each "RTSPClient".  To do this, we subclass "RTSPClient", and add a "StreamClientState" field to the subclass:
+// structure for each "RTSPClient".  To do this, we subclass "RTSPClient", and add a "StreamClientState" field to the subclass:
 
 class ourRTSPClient: public RTSPClient {
 public:
@@ -183,10 +194,11 @@ void continueAfterDESCRIBE(RTSPClient* rtspClient, int resultCode, char* resultS
 
     if (resultCode != 0) {
       env << *rtspClient << "Failed to get a SDP description: " << resultString << "\n";
+      delete[] resultString;
       break;
     }
 
-    char* sdpDescription = resultString;
+    char* const sdpDescription = resultString;
     env << *rtspClient << "Got a SDP description:\n" << sdpDescription << "\n";
 
     // Create a media session object from this SDP description:
@@ -212,6 +224,10 @@ void continueAfterDESCRIBE(RTSPClient* rtspClient, int resultCode, char* resultS
   shutdownStream(rtspClient);
 }
 
+// By default, we request that the server stream its data using RTP/UDP.
+// If, instead, you want to request that the server stream via RTP-over-TCP, change the following to True:
+#define REQUEST_STREAMING_OVER_TCP False
+
 void setupNextSubsession(RTSPClient* rtspClient) {
   UsageEnvironment& env = rtspClient->envir(); // alias
   StreamClientState& scs = ((ourRTSPClient*)rtspClient)->scs; // alias
@@ -222,18 +238,28 @@ void setupNextSubsession(RTSPClient* rtspClient) {
       env << *rtspClient << "Failed to initiate the \"" << *scs.subsession << "\" subsession: " << env.getResultMsg() << "\n";
       setupNextSubsession(rtspClient); // give up on this subsession; go to the next one
     } else {
-      env << *rtspClient << "Initiated the \"" << *scs.subsession
-	  << "\" subsession (client ports " << scs.subsession->clientPortNum() << "-" << scs.subsession->clientPortNum()+1 << ")\n";
+      env << *rtspClient << "Initiated the \"" << *scs.subsession << "\" subsession (";
+      if (scs.subsession->rtcpIsMuxed()) {
+	env << "client port " << scs.subsession->clientPortNum();
+      } else {
+	env << "client ports " << scs.subsession->clientPortNum() << "-" << scs.subsession->clientPortNum()+1;
+      }
+      env << ")\n";
 
       // Continue setting up this subsession, by sending a RTSP "SETUP" command:
-      rtspClient->sendSetupCommand(*scs.subsession, continueAfterSETUP);
+      rtspClient->sendSetupCommand(*scs.subsession, continueAfterSETUP, False, REQUEST_STREAMING_OVER_TCP);
     }
     return;
   }
 
   // We've finished setting up all of the subsessions.  Now, send a RTSP "PLAY" command to start the streaming:
-  scs.duration = scs.session->playEndTime() - scs.session->playStartTime();
-  rtspClient->sendPlayCommand(*scs.session, continueAfterPLAY);
+  if (scs.session->absStartTime() != NULL) {
+    // Special case: The stream is indexed by 'absolute' time, so send an appropriate "PLAY" command:
+    rtspClient->sendPlayCommand(*scs.session, continueAfterPLAY, scs.session->absStartTime(), scs.session->absEndTime());
+  } else {
+    scs.duration = scs.session->playEndTime() - scs.session->playStartTime();
+    rtspClient->sendPlayCommand(*scs.session, continueAfterPLAY);
+  }
 }
 
 void continueAfterSETUP(RTSPClient* rtspClient, int resultCode, char* resultString) {
@@ -242,12 +268,17 @@ void continueAfterSETUP(RTSPClient* rtspClient, int resultCode, char* resultStri
     StreamClientState& scs = ((ourRTSPClient*)rtspClient)->scs; // alias
 
     if (resultCode != 0) {
-      env << *rtspClient << "Failed to set up the \"" << *scs.subsession << "\" subsession: " << env.getResultMsg() << "\n";
+      env << *rtspClient << "Failed to set up the \"" << *scs.subsession << "\" subsession: " << resultString << "\n";
       break;
     }
 
-    env << *rtspClient << "Set up the \"" << *scs.subsession
-	<< "\" subsession (client ports " << scs.subsession->clientPortNum() << "-" << scs.subsession->clientPortNum()+1 << ")\n";
+    env << *rtspClient << "Set up the \"" << *scs.subsession << "\" subsession (";
+    if (scs.subsession->rtcpIsMuxed()) {
+      env << "client port " << scs.subsession->clientPortNum();
+    } else {
+      env << "client ports " << scs.subsession->clientPortNum() << "-" << scs.subsession->clientPortNum()+1;
+    }
+    env << ")\n";
 
     // Having successfully setup the subsession, create a data sink for it, and call "startPlaying()" on it.
     // (This will prepare the data sink to receive data; the actual flow of data from the client won't start happening until later,
@@ -262,7 +293,7 @@ void continueAfterSETUP(RTSPClient* rtspClient, int resultCode, char* resultStri
     }
 
     env << *rtspClient << "Created a data sink for the \"" << *scs.subsession << "\" subsession\n";
-    scs.subsession->miscPtr = rtspClient; // a hack to let subsession handle functions get the "RTSPClient" from the subsession 
+    scs.subsession->miscPtr = rtspClient; // a hack to let subsession handler functions get the "RTSPClient" from the subsession 
     scs.subsession->sink->startPlaying(*(scs.subsession->readSource()),
 				       subsessionAfterPlaying, scs.subsession);
     // Also set a handler to be called if a RTCP "BYE" arrives for this subsession:
@@ -270,12 +301,15 @@ void continueAfterSETUP(RTSPClient* rtspClient, int resultCode, char* resultStri
       scs.subsession->rtcpInstance()->setByeHandler(subsessionByeHandler, scs.subsession);
     }
   } while (0);
+  delete[] resultString;
 
   // Set up the next subsession, if any:
   setupNextSubsession(rtspClient);
 }
 
 void continueAfterPLAY(RTSPClient* rtspClient, int resultCode, char* resultString) {
+  Boolean success = False;
+
   do {
     UsageEnvironment& env = rtspClient->envir(); // alias
     StreamClientState& scs = ((ourRTSPClient*)rtspClient)->scs; // alias
@@ -302,11 +336,14 @@ void continueAfterPLAY(RTSPClient* rtspClient, int resultCode, char* resultStrin
     }
     env << "...\n";
 
-    return;
+    success = True;
   } while (0);
+  delete[] resultString;
 
-  // An unrecoverable error occurred with this stream.
-  shutdownStream(rtspClient);
+  if (!success) {
+    // An unrecoverable error occurred with this stream.
+    shutdownStream(rtspClient);
+  }
 }
 
 
@@ -366,6 +403,11 @@ void shutdownStream(RTSPClient* rtspClient, int exitCode) {
       if (subsession->sink != NULL) {
 	Medium::close(subsession->sink);
 	subsession->sink = NULL;
+
+	if (subsession->rtcpInstance() != NULL) {
+	  subsession->rtcpInstance()->setByeHandler(NULL, NULL); // in case the server sends a RTCP "BYE" while handling "TEARDOWN"
+	}
+
 	someSubsessionsWereActive = True;
       }
     }
@@ -383,7 +425,8 @@ void shutdownStream(RTSPClient* rtspClient, int exitCode) {
 
   if (--rtspClientCount == 0) {
     // The final stream has ended, so exit the application now.
-    // (Of course, if you're embedding this code into your own application, you might want to comment this out.)
+    // (Of course, if you're embedding this code into your own application, you might want to comment this out,
+    // and replace it with "eventLoopWatchVariable = 1;", so that we leave the LIVE555 event loop, and continue running "main()".)
     exit(exitCode);
   }
 }
@@ -398,7 +441,7 @@ ourRTSPClient* ourRTSPClient::createNew(UsageEnvironment& env, char const* rtspU
 
 ourRTSPClient::ourRTSPClient(UsageEnvironment& env, char const* rtspURL,
 			     int verbosityLevel, char const* applicationName, portNumBits tunnelOverHTTPPortNum)
-  : RTSPClient(env,rtspURL, verbosityLevel, applicationName, tunnelOverHTTPPortNum) {
+  : RTSPClient(env,rtspURL, verbosityLevel, applicationName, tunnelOverHTTPPortNum, -1) {
 }
 
 ourRTSPClient::~ourRTSPClient() {
@@ -463,10 +506,13 @@ void DummySink::afterGettingFrame(unsigned frameSize, unsigned numTruncatedBytes
   if (numTruncatedBytes > 0) envir() << " (with " << numTruncatedBytes << " bytes truncated)";
   char uSecsStr[6+1]; // used to output the 'microseconds' part of the presentation time
   sprintf(uSecsStr, "%06u", (unsigned)presentationTime.tv_usec);
-  envir() << ".\tPresentation time: " << (unsigned)presentationTime.tv_sec << "." << uSecsStr;
+  envir() << ".\tPresentation time: " << (int)presentationTime.tv_sec << "." << uSecsStr;
   if (fSubsession.rtpSource() != NULL && !fSubsession.rtpSource()->hasBeenSynchronizedUsingRTCP()) {
     envir() << "!"; // mark the debugging output to indicate that this presentation time is not RTCP-synchronized
   }
+#ifdef DEBUG_PRINT_NPT
+  envir() << "\tNPT: " << fSubsession.getNormalPlayTime(presentationTime);
+#endif
   envir() << "\n";
 #endif
   

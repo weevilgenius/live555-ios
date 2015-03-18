@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A 'ServerMediaSubsession' object that represents an existing
 // 'RTPSink', rather than one that creates new 'RTPSink's on demand.
 // C++ header
@@ -43,6 +43,8 @@ protected:
       // called only by createNew();
   virtual ~PassiveServerMediaSubsession();
 
+  virtual Boolean rtcpIsMuxed();
+
 protected: // redefined virtual functions
   virtual char const* sdpLines();
   virtual void getStreamParameters(unsigned clientSessionId,
@@ -65,6 +67,7 @@ protected: // redefined virtual functions
                            unsigned& rtpTimestamp,
 			   ServerRequestAlternativeByteHandler* serverRequestAlternativeByteHandler,
                            void* serverRequestAlternativeByteHandlerClientData);
+  virtual float getCurrentNPT(void* streamToken);
   virtual void deleteStream(unsigned clientSessionId, void*& streamToken);
 
 protected:

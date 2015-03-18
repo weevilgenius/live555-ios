@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // RTP Sources
 // C++ header
 
@@ -49,6 +49,10 @@ public:
   u_int32_t SSRC() const { return fSSRC; }
       // Note: This is *our* SSRC, not the SSRC in incoming RTP packets.
      // later need a means of changing the SSRC if there's a collision #####
+  void registerForMultiplexedRTCPPackets(class RTCPInstance* rtcpInstance) {
+    fRTCPInstanceForMultiplexedRTCPPackets = rtcpInstance;
+  }
+  void deregisterForMultiplexedRTCPPackets() { registerForMultiplexedRTCPPackets(NULL); }
 
   unsigned timestampFrequency() const {return fTimestampFrequency;}
 
@@ -59,12 +63,12 @@ public:
   u_int32_t lastReceivedSSRC() const { return fLastReceivedSSRC; }
   // Note: This is the SSRC in the most recently received RTP packet; not *our* SSRC
 
+  Boolean& enableRTCPReports() { return fEnableRTCPReports; }
+  Boolean const& enableRTCPReports() const { return fEnableRTCPReports; }
+
   void setStreamSocket(int sockNum, unsigned char streamChannelId) {
     // hack to allow sending RTP over TCP (RFC 2236, section 10.12)
     fRTPInterface.setStreamSocket(sockNum, streamChannelId);
-  }
-  void setServerRequestAlternativeByteHandler(int socketNum, ServerRequestAlternativeByteHandler* handler, void* clientData) {
-    fRTPInterface.setServerRequestAlternativeByteHandler(socketNum, handler, clientData);
   }
 
   void setAuxilliaryReadHandler(AuxHandlerFunc* handlerFunc,
@@ -77,6 +81,7 @@ public:
   // RTP sequence numbers and timestamps are usually not useful to receivers.
   // (Our implementation of RTP reception already does all needed handling of RTP sequence numbers and timestamps.)
   u_int16_t curPacketRTPSeqNum() const { return fCurPacketRTPSeqNum; }
+private: friend class MediaSubsession; // "MediaSubsession" is the only outside class that ever needs to see RTP timestamps!
   u_int32_t curPacketRTPTimestamp() const { return fCurPacketRTPTimestamp; }
 
 protected:
@@ -92,6 +97,7 @@ protected:
   Boolean fCurPacketMarkerBit;
   Boolean fCurPacketHasBeenSynchronizedUsingRTCP;
   u_int32_t fLastReceivedSSRC;
+  class RTCPInstance* fRTCPInstanceForMultiplexedRTCPPackets;
 
 private:
   // redefined virtual functions:
@@ -102,6 +108,7 @@ private:
   unsigned char fRTPPayloadFormat;
   unsigned fTimestampFrequency;
   u_int32_t fSSRC;
+  Boolean fEnableRTCPReports; // whether RTCP "RR" reports should be sent for this source (default: True)
 
   RTPReceptionStatsDB* fReceptionStatsDB;
 };

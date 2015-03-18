@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A template for a MediaSource encapsulating an audio/video input device
 // 
 // NOTE: Sections of this code labeled "%%% TO BE WRITTEN %%%" are incomplete, and needto be written by the programmer
@@ -40,6 +40,9 @@ public:
 
 public:
   static EventTriggerId eventTriggerId;
+  // Note that this is defined here to be a static class variable, because this code is intended to illustrate how to
+  // encapsulate a *single* device - not a set of devices.
+  // You can, however, redefine this to be a non-static member variable.
 
 protected:
   DeviceSource(UsageEnvironment& env, DeviceParameters params);
@@ -49,6 +52,7 @@ protected:
 private:
   // redefined virtual functions:
   virtual void doGetNextFrame();
+  //virtual void doStopGettingFrames(); // optional
 
 private:
   static void deliverFrame0(void* clientData);

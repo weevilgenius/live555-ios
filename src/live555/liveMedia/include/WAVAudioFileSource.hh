@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A WAV audio file source
 // NOTE: Samples are returned in little-endian order (the same order in which
 // they were stored in the file).
@@ -44,7 +44,8 @@ public:
 
   unsigned numPCMBytes() const;
   void setScaleFactor(int scale);
-  void seekToPCMByte(unsigned byteNumber, unsigned numBytesToStream);
+  void seekToPCMByte(unsigned byteNumber);
+  void limitNumBytesToStream(unsigned numBytesToStream);
       // if "numBytesToStream" is >0, then we limit the stream to that number of bytes, before treating it as EOF
 
   unsigned char getAudioFormat();
@@ -55,17 +56,25 @@ protected:
 
   virtual ~WAVAudioFileSource();
 
+  static void fileReadableHandler(WAVAudioFileSource* source, int mask);
+  void doReadFromFile();
+
 private:
   // redefined virtual functions:
   virtual void doGetNextFrame();
+  virtual void doStopGettingFrames();
   virtual Boolean setInputPort(int portIndex);
   virtual double getAverageLevel() const;
+
+protected:
+  unsigned fPreferredFrameSize;
 
 private:
   FILE* fFid;
   double fPlayTimePerSample; // useconds
-  unsigned fPreferredFrameSize;
+  Boolean fFidIsSeekable;
   unsigned fLastPlayTime; // useconds
+  Boolean fHaveStartedReading;
   unsigned fWAVHeaderSize;
   unsigned fFileSize;
   int fScaleFactor;

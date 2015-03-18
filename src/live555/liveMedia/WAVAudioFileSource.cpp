@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
 // A WAV audio file source
 // Implementation
 
@@ -51,6 +51,8 @@ unsigned WAVAudioFileSource::numPCMBytes() const {
 }
 
 void WAVAudioFileSource::setScaleFactor(int scale) {
+  if (!fFidIsSeekable) return; // we can't do 'trick play' operations on non-seekable files
+
   fScaleFactor = scale;
 
   if (fScaleFactor < 0 && TellFile64(fFid) > 0) {
@@ -63,12 +65,14 @@ void WAVAudioFileSource::setScaleFactor(int scale) {
   }
 }
 
-void WAVAudioFileSource::seekToPCMByte(unsigned byteNumber, unsigned numBytesToStream) {
+void WAVAudioFileSource::seekToPCMByte(unsigned byteNumber) {
   byteNumber += fWAVHeaderSize;
   if (byteNumber > fFileSize) byteNumber = fFileSize;
 
   SeekFile64(fFid, byteNumber, SEEK_SET);
+}
 
+void WAVAudioFileSource::limitNumBytesToStream(unsigned numBytesToStream) {
   fNumBytesToStream = numBytesToStream;
   fLimitNumBytesToStream = fNumBytesToStream > 0;
 }
@@ -80,7 +84,7 @@ unsigned char WAVAudioFileSource::getAudioFormat() {
 
 #define nextc fgetc(fid)
 
-static Boolean get4Bytes(FILE* fid, unsigned& result) { // little-endian
+static Boolean get4Bytes(FILE* fid, u_int32_t& result) { // little-endian
   int c0, c1, c2, c3;
   if ((c0 = nextc) == EOF || (c1 = nextc) == EOF ||
       (c2 = nextc) == EOF || (c3 = nextc) == EOF) return False;
@@ -88,7 +92,7 @@ static Boolean get4Bytes(FILE* fid, unsigned& result) { // little-endian
   return True;
 }
 
-static Boolean get2Bytes(FILE* fid, unsigned short& result) {//little-endian
+static Boolean get2Bytes(FILE* fid, u_int16_t& result) {//little-endian
   int c0, c1;
   if ((c0 = nextc) == EOF || (c1 = nextc) == EOF) return False;
   result = (c1<<8)|c0;
@@ -104,13 +108,13 @@ static Boolean skipBytes(FILE* fid, int num) {
 
 WAVAudioFileSource::WAVAudioFileSource(UsageEnvironment& env, FILE* fid)
   : AudioInputDevice(env, 0, 0, 0, 0)/* set the real parameters later */,
-    fFid(fid), fLastPlayTime(0), fWAVHeaderSize(0), fFileSize(0), fScaleFactor(1),
-    fLimitNumBytesToStream(False), fNumBytesToStream(0), fAudioFormat(WA_UNKNOWN) {
+    fFid(fid), fFidIsSeekable(False), fLastPlayTime(0), fHaveStartedReading(False), fWAVHeaderSize(0), fFileSize(0),
+    fScaleFactor(1), fLimitNumBytesToStream(False), fNumBytesToStream(0), fAudioFormat(WA_UNKNOWN) {
   // Check the WAV file header for validity.
   // Note: The following web pages contain info about the WAV format:
   // http://www.ringthis.com/dev/wave_format.htm
   // http://www.lightlink.com/tjweber/StripWav/Canon.html
-  // http://www.wotsit.org/list.asp?al=W
+  // http://www.onicos.com/staff/iz/formats/wav.html
 
   Boolean success = False; // until we learn otherwise
   do {
@@ -119,8 +123,16 @@ WAVAudioFileSource::WAVAudioFileSource(UsageEnvironment& env, FILE* fid)
     if (!skipBytes(fid, 4)) break;
     if (nextc != 'W' || nextc != 'A' || nextc != 'V' || nextc != 'E') break;
 
-    // FORMAT Chunk:
-    if (nextc != 'f' || nextc != 'm' || nextc != 't' || nextc != ' ') break;
+    // Skip over any chunk that's not a FORMAT ('fmt ') chunk:
+    u_int32_t tmp;
+    if (!get4Bytes(fid, tmp)) break;
+    if (tmp != 0x20746d66/*'fmt ', little-endian*/) {
+      // Skip this chunk:
+      if (!get4Bytes(fid, tmp)) break;
+      if (!skipBytes(fid, tmp)) break;
+    }
+
+    // FORMAT Chunk (the 4-byte header code has already been parsed):
     unsigned formatLength;
     if (!get4Bytes(fid, formatLength)) break;
     unsigned short audioFormat;
@@ -192,20 +204,60 @@ WAVAudioFileSource::WAVAudioFileSource(UsageEnvironment& env, FILE* fid)
   unsigned desiredSamplesPerFrame = (unsigned)(0.02*fSamplingFrequency);
   unsigned samplesPerFrame = desiredSamplesPerFrame < maxSamplesPerFrame ? desiredSamplesPerFrame : maxSamplesPerFrame;
   fPreferredFrameSize = (samplesPerFrame*fNumChannels*fBitsPerSample)/8;
+
+  fFidIsSeekable = FileIsSeekable(fFid);
+#ifndef READ_FROM_FILES_SYNCHRONOUSLY
+  // Now that we've finished reading the WAV header, all future reads (of audio samples) from the file will be asynchronous:
+  makeSocketNonBlocking(fileno(fFid));
+#endif
 }
 
 WAVAudioFileSource::~WAVAudioFileSource() {
+  if (fFid == NULL) return;
+
+#ifndef READ_FROM_FILES_SYNCHRONOUSLY
+  envir().taskScheduler().turnOffBackgroundReadHandling(fileno(fFid));
+#endif
+
   CloseInputFile(fFid);
 }
 
-// Note: We should change the following to use asynchronous file reading, #####
-// as we now do with ByteStreamFileSource. #####
 void WAVAudioFileSource::doGetNextFrame() {
   if (feof(fFid) || ferror(fFid) || (fLimitNumBytesToStream && fNumBytesToStream == 0)) {
-    handleClosure(this);
+    handleClosure();
     return;
   }
 
+  fFrameSize = 0; // until it's set later
+#ifdef READ_FROM_FILES_SYNCHRONOUSLY
+  doReadFromFile();
+#else
+  if (!fHaveStartedReading) {
+    // Await readable data from the file:
+    envir().taskScheduler().turnOnBackgroundReadHandling(fileno(fFid),
+							 (TaskScheduler::BackgroundHandlerProc*)&fileReadableHandler, this);
+    fHaveStartedReading = True;
+  }
+#endif
+}
+
+void WAVAudioFileSource::doStopGettingFrames() {
+  envir().taskScheduler().unscheduleDelayedTask(nextTask());
+#ifndef READ_FROM_FILES_SYNCHRONOUSLY
+  envir().taskScheduler().turnOffBackgroundReadHandling(fileno(fFid));
+  fHaveStartedReading = False;
+#endif
+}
+
+void WAVAudioFileSource::fileReadableHandler(WAVAudioFileSource* source, int /*mask*/) {
+  if (!source->isCurrentlyAwaitingData()) {
+    source->doStopGettingFrames(); // we're not ready for the data yet
+    return;
+  }
+  source->doReadFromFile();
+}
+
+void WAVAudioFileSource::doReadFromFile() {
   // Try to read as many bytes as will fit in the buffer provided (or "fPreferredFrameSize" if less)
   if (fLimitNumBytesToStream && fNumBytesToStream < fMaxSize) {
     fMaxSize = fNumBytesToStream;
@@ -215,24 +267,42 @@ void WAVAudioFileSource::doGetNextFrame() {
   }
   unsigned bytesPerSample = (fNumChannels*fBitsPerSample)/8;
   if (bytesPerSample == 0) bytesPerSample = 1; // because we can't read less than a byte at a time
-  unsigned bytesToRead = fMaxSize - fMaxSize%bytesPerSample;
-  if (fScaleFactor == 1) {
-    // Common case - read samples in bulk:
-    fFrameSize = fread(fTo, 1, bytesToRead, fFid);
-    fNumBytesToStream -= fFrameSize;
-  } else {
-    // We read every 'fScaleFactor'th sample:
-    fFrameSize = 0;
-    while (bytesToRead > 0) {
-      size_t bytesRead = fread(fTo, 1, bytesPerSample, fFid);
-      if (bytesRead <= 0) break;
-      fTo += bytesRead;
-      fFrameSize += bytesRead;
-      fNumBytesToStream -= bytesRead;
-      bytesToRead -= bytesRead;
 
-      // Seek to the appropriate place for the next sample:
+  // For 'trick play', read one sample at a time; otherwise (normal case) read samples in bulk:
+  unsigned bytesToRead = fScaleFactor == 1 ? fMaxSize - fMaxSize%bytesPerSample : bytesPerSample;
+  unsigned numBytesRead;
+  while (1) { // loop for 'trick play' only
+#ifdef READ_FROM_FILES_SYNCHRONOUSLY
+    numBytesRead = fread(fTo, 1, bytesToRead, fFid);
+#else
+    if (fFidIsSeekable) {
+      numBytesRead = fread(fTo, 1, bytesToRead, fFid);
+    } else {
+      // For non-seekable files (e.g., pipes), call "read()" rather than "fread()", to ensure that the read doesn't block:
+      numBytesRead = read(fileno(fFid), fTo, bytesToRead);
+    }
+#endif
+    if (numBytesRead == 0) {
+     handleClosure();
+      return;
+    }
+    fFrameSize += numBytesRead;
+    fTo += numBytesRead;
+    fMaxSize -= numBytesRead;
+    fNumBytesToStream -= numBytesRead;
+
+    // If we did an asynchronous read, and didn't read an integral number of samples, then we need to wait for another read:
+#ifndef READ_FROM_FILES_SYNCHRONOUSLY
+    if (fFrameSize%bytesPerSample > 0) return;
+#endif
+    
+    // If we're doing 'trick play', then seek to the appropriate place for reading the next sample,
+    // and keep reading until we fill the provided buffer:
+    if (fScaleFactor != 1) {
       SeekFile64(fFid, (fScaleFactor-1)*bytesPerSample, SEEK_CUR);
+      if (fMaxSize < bytesPerSample) break;
+    } else {
+      break; // from the loop (normal case)
     }
   }
 
@@ -242,7 +312,7 @@ void WAVAudioFileSource::doGetNextFrame() {
     gettimeofday(&fPresentationTime, NULL);
   } else {
     // Increment by the play time of the previous data:
-    unsigned uSeconds	= fPresentationTime.tv_usec + fLastPlayTime;
+    unsigned uSeconds = fPresentationTime.tv_usec + fLastPlayTime;
     fPresentationTime.tv_sec += uSeconds/1000000;
     fPresentationTime.tv_usec = uSeconds%1000000;
   }
@@ -251,19 +321,15 @@ void WAVAudioFileSource::doGetNextFrame() {
   fDurationInMicroseconds = fLastPlayTime
     = (unsigned)((fPlayTimePerSample*fFrameSize)/bytesPerSample);
 
-  // Switch to another task, and inform the reader that he has data:
-#if defined(__WIN32__) || defined(_WIN32)
-  // HACK: One of our applications that uses this source uses an
-  // implementation of scheduleDelayedTask() that performs very badly
-  // (chewing up lots of CPU time, apparently polling) on Windows.
-  // Until this is fixed, we just call our "afterGetting()" function
-  // directly.  This avoids infinite recursion, as long as our sink
-  // is discontinuous, which is the case for the RTP sink that
-  // this application uses. #####
-  afterGetting(this);
-#else
+  // Inform the reader that he has data:
+#ifdef READ_FROM_FILES_SYNCHRONOUSLY
+  // To avoid possible infinite recursion, we need to return to the event loop to do this:
   nextTask() = envir().taskScheduler().scheduleDelayedTask(0,
-			(TaskFunc*)FramedSource::afterGetting, this);
+                                (TaskFunc*)FramedSource::afterGetting, this);
+#else
+  // Because the file read was done from the event loop, we can call the
+  // 'after getting' function directly, without risk of infinite recursion:
+  FramedSource::afterGetting(this);
 #endif
 }
 

@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 /* "groupsock" interface
- * Copyright (c) 1996-2012 Live Networks, Inc.  All rights reserved.
+ * Copyright (c) 1996-2015 Live Networks, Inc.  All rights reserved.
  * Common include files, typically used for networking
  */
 
@@ -23,15 +23,28 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 
 #if defined(__WIN32__) || defined(_WIN32) || defined(_WIN32_WCE)
 /* Windows */
-#if defined(WINNT) || defined(_WINNT) || defined(__BORLANDC__) || defined(__MINGW32__) || defined(_WIN32_WCE)
+#if defined(WINNT) || defined(_WINNT) || defined(__BORLANDC__) || defined(__MINGW32__) || defined(_WIN32_WCE) || defined (_MSC_VER)
 #define _MSWSOCK_
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #endif
 #include <windows.h>
+#include <errno.h>
 #include <string.h>
 
 #define closeSocket closesocket
+#ifdef EWOULDBLOCK
+#undef EWOULDBLOCK
+#endif
+#ifdef EINPROGRESS
+#undef EINPROGRESS
+#endif
+#ifdef EAGAIN
+#undef EAGAIN
+#endif
+#ifdef EINTR
+#undef EINTR
+#endif
 #define EWOULDBLOCK WSAEWOULDBLOCK
 #define EINPROGRESS WSAEWOULDBLOCK
 #define EAGAIN WSAEWOULDBLOCK
@@ -44,9 +57,15 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 /* Definitions of size-specific types: */
 typedef __int64 int64_t;
 typedef unsigned __int64 u_int64_t;
+
+typedef int int32_t;
 typedef unsigned u_int32_t;
+
+typedef short int16_t;
 typedef unsigned short u_int16_t;
+
 typedef unsigned char u_int8_t;
+
 // For "uintptr_t" and "intptr_t", we assume that if they're not already defined, then this must be
 // an old, 32-bit version of Windows:
 #if !defined(_MSC_STDINT_H_) && !defined(_UINTPTR_T_DEFINED) && !defined(_UINTPTR_T_DECLARED) && !defined(_UINTPTR_T)
